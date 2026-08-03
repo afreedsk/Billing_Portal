@@ -1,0 +1,77 @@
+/* Login page — dedicated stylesheet (kept separate from index.css so it's
+   easy to re-theme without touching the rest of the app). */
+
+.login-page {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: #ffffff;
+}
+
+.login-wrap {
+  width: 100%;
+  max-width: 420px;
+}
+
+.login-logo-wrap {
+  text-align: center;
+  margin-bottom: 22px;
+}
+
+.login-logo {
+  max-width: 190px;
+  max-height: 96px;
+  object-fit: contain;
+}
+
+.login-logo-fallback {
+  width: 56px;
+  height: 56px;
+  border-radius: var(--radius-lg);
+  background: var(--color-primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto;
+}
+
+.login-brand {
+  text-align: center;
+  margin-bottom: 24px;
+}
+
+.login-brand h1 {
+  color: var(--color-ink-900);
+  font-size: 23px;
+  font-weight: 700;
+}
+
+.login-brand p {
+  color: var(--color-ink-500);
+  font-size: 13.5px;
+  margin-top: 6px;
+}
+
+.login-card {
+  background: #ffffff;
+  border: 1px solid var(--color-ink-200);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
+  padding: 32px;
+}
+
+.login-form {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.login-footer-note {
+  text-align: center;
+  font-size: 12px;
+  color: var(--color-ink-400);
+  margin-top: 22px;
+  line-height: 1.5;
+}
