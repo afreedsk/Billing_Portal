@@ -1,102 +1,270 @@
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState, useCallback, useRef } from "react";
 import toast from "react-hot-toast";
-import { Plus, Trash2, ShieldCheck, Users, TrendingUp, TrendingDown, Wallet, X } from "lucide-react";
+import {
+  Users, TrendingUp, TrendingDown, Wallet,
+  Search, Upload, Download, RotateCcw,
+} from "lucide-react";
+import {
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
+  ResponsiveContainer, PieChart, Pie, Cell,
+} from "recharts";
 import Navbar from "../../components/Navbar.jsx";
+import StatCards from "../../components/StatCards.jsx";
+import FinanceCharts from "../../components/FinanceCharts.jsx";
+import FinanceTable from "../../components/FinanceTable.jsx";
 import api from "../../api/axios.js";
 
-const ROLES = ["SuperAdmin", "IT", "PCM", "MedTech", "Caredx"];
+const DEPARTMENTS = ["IT", "PCM", "MedTech", "Caredx"];
+const PIE_COLORS = ["#2f5dd4", "#16a34a", "#d97706", "#8b5cf6", "#dc2626"];
 
 const formatCurrency = (value) =>
   new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 }).format(value || 0);
 
-const emptyUser = { name: "", email: "", password: "", role: "IT", department: "" };
+const firstOfMonth = () => {
+  const d = new Date();
+  return new Date(d.getFullYear(), d.getMonth(), 1).toISOString().split("T")[0];
+};
+const todayStr = () => new Date().toISOString().split("T")[0];
 
 export default function SuperAdminDashboard() {
-  const [users, setUsers] = useState([]);
-  const [teamStats, setTeamStats] = useState(null);
   const [overview, setOverview] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [formOpen, setFormOpen] = useState(false);
-  const [form, setForm] = useState(emptyUser);
-  const [saving, setSaving] = useState(false);
 
-  const fetchAll = useCallback(async () => {
+  const [activeDept, setActiveDept] = useState("overview");
+
+  const [startDate, setStartDate] = useState(firstOfMonth());
+  const [endDate, setEndDate] = useState(todayStr());
+  const [searchTerm, setSearchTerm] = useState("");
+
+  const [deptEntries, setDeptEntries] = useState([]);
+  const [deptSummary, setDeptSummary] = useState(null);
+
+  const [caredxLabEntries, setCaredxLabEntries] = useState([]);
+  const [caredxExpenses, setCaredxExpenses] = useState([]);
+
+  const [deptLoading, setDeptLoading] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const fileInputRef = useRef(null);
+
+  // ----- Overview fetching (with date filters) -----
+  const fetchOverview = useCallback(async (start, end) => {
     setLoading(true);
     try {
-      const [usersRes, statsRes, overviewRes] = await Promise.all([
-        api.get("/admin/users"),
-        api.get("/admin/team-stats"),
-        api.get("/admin/overview"),
-      ]);
-      setUsers(usersRes.data.users);
-      setTeamStats(statsRes.data);
-      setOverview(overviewRes.data);
+      const res = await api.get("/admin/overview", {
+        params: { start_date: start, end_date: end },
+      });
+      setOverview(res.data);
     } catch {
-      toast.error("Failed to load admin data.");
+      toast.error("Failed to load admin overview.");
     } finally {
       setLoading(false);
     }
   }, []);
 
+  // Fetch overview whenever date range changes (only in overview mode)
   useEffect(() => {
-    fetchAll();
-  }, [fetchAll]);
+    if (activeDept === "overview") {
+      fetchOverview(startDate, endDate);
+    }
+  }, [activeDept, startDate, endDate, fetchOverview]);
 
-  const handleCreate = async (e) => {
-    e.preventDefault();
-    setSaving(true);
+  // ----- Department data fetching -----
+  const fetchDeptData = useCallback(async () => {
+    if (activeDept === "overview") return;
+    setDeptLoading(true);
     try {
-      await api.post("/admin/users", { ...form, department: form.department || form.role });
-      toast.success("User created.");
-      setFormOpen(false);
-      setForm(emptyUser);
-      fetchAll();
+      if (activeDept === "Caredx") {
+        const [entriesRes, summaryRes] = await Promise.all([
+          api.get(`/admin/departments/Caredx/entries`, {
+            params: { start_date: startDate, end_date: endDate, search: searchTerm || undefined },
+          }),
+          api.get(`/admin/departments/Caredx/summary`, { params: { start_date: startDate, end_date: endDate } }),
+        ]);
+        setCaredxLabEntries(entriesRes.data.lab_entries);
+        setCaredxExpenses(entriesRes.data.expenses);
+        setDeptSummary(summaryRes.data);
+      } else {
+        const [entriesRes, summaryRes] = await Promise.all([
+          api.get(`/admin/departments/${activeDept}/entries`, {
+            params: { start_date: startDate, end_date: endDate, search: searchTerm || undefined },
+          }),
+          api.get(`/admin/departments/${activeDept}/summary`, { params: { start_date: startDate, end_date: endDate } }),
+        ]);
+        setDeptEntries(entriesRes.data.entries);
+        setDeptSummary(summaryRes.data);
+      }
+    } catch {
+      toast.error(`Failed to load ${activeDept} data.`);
+    } finally {
+      setDeptLoading(false);
+    }
+  }, [activeDept, startDate, endDate, searchTerm]);
+
+  useEffect(() => {
+    fetchDeptData();
+  }, [fetchDeptData]);
+
+  const handleSelectDept = (dept) => {
+    setActiveDept(dept);
+    setStartDate(firstOfMonth());
+    setEndDate(todayStr());
+    setSearchTerm("");
+    setDeptEntries([]);
+    setCaredxLabEntries([]);
+    setCaredxExpenses([]);
+    setDeptSummary(null);
+  };
+
+  const handleResetFilters = () => {
+    setStartDate(firstOfMonth());
+    setEndDate(todayStr());
+    setSearchTerm("");
+  };
+
+  const handleExportExcel = async () => {
+    try {
+      const res = await api.get(`/admin/departments/${activeDept}/export`, {
+        params: { start_date: startDate, end_date: endDate },
+        responseType: "blob",
+      });
+      const blob = new Blob([res.data], {
+        type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${activeDept}_${startDate}_to_${endDate}.xlsx`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      toast.error("Failed to export Excel file.");
+    }
+  };
+
+  const handleImportClick = () => {
+    fileInputRef.current?.click();
+  };
+
+  const handleImportFileChange = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+
+    const formData = new FormData();
+    formData.append("file", file);
+
+    setImporting(true);
+    try {
+      const res = await api.post(`/admin/departments/${activeDept}/import`, formData, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+      const { imported, errors } = res.data;
+      if (imported > 0) {
+        toast.success(`Imported ${imported} entr${imported === 1 ? "y" : "ies"} into ${activeDept}.`);
+      }
+      if (errors && errors.length) {
+        toast.error(`${errors.length} row(s) skipped — check the sheet formatting.`);
+      }
+      fetchDeptData();
+      fetchOverview(startDate, endDate);
     } catch (err) {
-      const msg = err.response?.data?.errors?.join(" ") || err.response?.data?.message || "Failed to create user.";
+      const msg = err.response?.data?.message || "Failed to import the Excel file.";
       toast.error(msg);
     } finally {
-      setSaving(false);
+      setImporting(false);
     }
   };
 
-  const handleDelete = async (user) => {
-    if (!window.confirm(`Remove ${user.name} (${user.role})?`)) return;
-    try {
-      await api.delete(`/admin/users/${user.id}`);
-      toast.success("User removed.");
-      fetchAll();
-    } catch {
-      toast.error("Failed to remove user.");
-    }
-  };
-
-  const toggleActive = async (user) => {
-    try {
-      await api.put(`/admin/users/${user.id}`, { is_active: !user.is_active });
-      fetchAll();
-    } catch {
-      toast.error("Failed to update user.");
-    }
-  };
+  const pieData = (overview?.by_department || []).map((d) => ({
+    name: d.department,
+    value: d.income + d.expenses,
+  }));
 
   return (
     <div className="page">
       <Navbar title="SuperAdmin Dashboard" roleColor="#7c3aed" />
 
       <main className="page-main">
+        {/* ---------------- Top filter bar ---------------- */}
+        <div className="card" style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "flex-end" }}>
+          <div className="form-group" style={{ marginBottom: 0 }}>
+            <label className="form-label">Department</label>
+            <select
+              className="form-control"
+              value={activeDept}
+              onChange={(e) => handleSelectDept(e.target.value)}
+            >
+              <option value="overview">Overview</option>
+              {DEPARTMENTS.map((dept) => (
+                <option key={dept} value={dept}>{dept}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* Date filters – always visible */}
+          <div className="form-group" style={{ marginBottom: 0 }}>
+            <label className="form-label">Start Date</label>
+            <input
+              type="date"
+              className="form-control"
+              value={startDate}
+              onChange={(e) => setStartDate(e.target.value)}
+            />
+          </div>
+          <div className="form-group" style={{ marginBottom: 0 }}>
+            <label className="form-label">End Date</label>
+            <input
+              type="date"
+              className="form-control"
+              value={endDate}
+              onChange={(e) => setEndDate(e.target.value)}
+            />
+          </div>
+
+          <button type="button" onClick={handleResetFilters} className="btn btn-secondary">
+            <RotateCcw size={15} /> Reset
+          </button>
+
+          {/* Department‑only actions */}
+          {activeDept !== "overview" && (
+            <>
+              <div className="form-group" style={{ marginBottom: 0, flex: 1, minWidth: 200 }}>
+                <label className="form-label">Search</label>
+                <div style={{ position: "relative" }}>
+                  <Search size={15} style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", opacity: 0.5 }} />
+                  <input
+                    className="form-control"
+                    style={{ paddingLeft: 32 }}
+                    placeholder={`Search ${activeDept} entries...`}
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                  />
+                </div>
+              </div>
+              <button type="button" onClick={handleExportExcel} className="btn btn-secondary">
+                <Download size={15} /> Export Excel
+              </button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".xlsx,.xlsm"
+                style={{ display: "none" }}
+                onChange={handleImportFileChange}
+              />
+              <button type="button" onClick={handleImportClick} disabled={importing} className="btn btn-secondary">
+                <Upload size={15} /> {importing ? "Importing..." : "Import Excel"}
+              </button>
+            </>
+          )}
+        </div>
+
+        {/* ---------------- Platform stat cards ---------------- */}
         <div className="stat-grid">
           <div className="card stat-card">
             <div className="stat-icon stat-icon--team"><Users size={22} /></div>
             <div>
               <p className="stat-label">Total Team Members</p>
               <p className="stat-value">{overview?.total_members ?? "—"}</p>
-            </div>
-          </div>
-          <div className="card stat-card">
-            <div className="stat-icon stat-icon--active"><ShieldCheck size={22} /></div>
-            <div>
-              <p className="stat-label">Active Members</p>
-              <p className="stat-value">{overview?.active_members ?? "—"}</p>
             </div>
           </div>
           <div className="card stat-card">
@@ -129,7 +297,13 @@ export default function SuperAdminDashboard() {
             </p>
             <div className="dept-grid">
               {overview.by_department.map((d) => (
-                <div key={d.department} className="dept-card">
+                <button
+                  key={d.department}
+                  type="button"
+                  onClick={() => handleSelectDept(d.department)}
+                  className="dept-card"
+                  style={{ textAlign: "left", cursor: "pointer", border: activeDept === d.department ? "2px solid #7c3aed" : undefined }}
+                >
                   <p className="dept-card-title">{d.department}</p>
                   <div className="dept-row">
                     <span className="dept-row-label">Income</span>
@@ -145,158 +319,147 @@ export default function SuperAdminDashboard() {
                       {formatCurrency(d.profit)}
                     </span>
                   </div>
-                </div>
+                </button>
               ))}
             </div>
           </div>
         )}
 
-        {teamStats && (
-          <div className="card">
-            <p className="section-title" style={{ marginBottom: 16 }}>Team Members by Role</p>
-            <div className="role-stat-grid">
-              {ROLES.map((role) => {
-                const found = teamStats.by_role.find((r) => r.role === role);
-                return (
-                  <div key={role} className="role-stat">
-                    <p className="role-stat-count">{found?.count ?? 0}</p>
-                    <p className="role-stat-label">{role}</p>
-                  </div>
-                );
-              })}
+        {activeDept === "overview" && overview?.by_department && (
+          <div className="chart-grid">
+            <div className="card chart-card">
+              <h3>Income vs Expenses by Department</h3>
+              <ResponsiveContainer width="100%" height={280}>
+                <BarChart data={overview.by_department}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#eef0f4" />
+                  <XAxis dataKey="department" tick={{ fontSize: 12, fill: "#9ca3af" }} />
+                  <YAxis tick={{ fontSize: 11, fill: "#9ca3af" }} />
+                  <Tooltip formatter={(v) => formatCurrency(v)} />
+                  <Legend />
+                  <Bar dataKey="income" fill="#16a34a" name="Income" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="expenses" fill="#dc2626" name="Expenses" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+
+            <div className="card chart-card">
+              <h3>Department Share of Total Volume</h3>
+              <ResponsiveContainer width="100%" height={280}>
+                <PieChart>
+                  <Pie
+                    data={pieData}
+                    dataKey="value"
+                    nameKey="name"
+                    cx="50%"
+                    cy="50%"
+                    outerRadius={90}
+                    label={(entry) => entry.name}
+                  >
+                    {pieData.map((_, idx) => (
+                      <Cell key={idx} fill={PIE_COLORS[idx % PIE_COLORS.length]} />
+                    ))}
+                  </Pie>
+                  <Tooltip formatter={(v) => formatCurrency(v)} />
+                </PieChart>
+              </ResponsiveContainer>
             </div>
           </div>
         )}
 
-        <div className="section-header">
-          <p className="section-title">All Users</p>
-          <button onClick={() => setFormOpen(true)} className="btn btn-primary">
-            <Plus size={16} /> Add User
-          </button>
-        </div>
+        {activeDept !== "overview" && (
+          <>
+            {deptSummary && (
+              <StatCards
+                totalIncome={deptSummary.total_income}
+                totalExpenses={deptSummary.total_expenses}
+                profit={deptSummary.profit}
+                entryCount={deptSummary.entry_count}
+              />
+            )}
 
-        {loading ? (
-          <div className="card empty-state">Loading...</div>
-        ) : (
-          <div className="card table-wrap">
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>Name</th>
-                  <th>Email</th>
-                  <th>Role</th>
-                  <th>Department</th>
-                  <th>Status</th>
-                  <th className="text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {users.map((u) => (
-                  <tr key={u.id}>
-                    <td style={{ fontWeight: 600, color: "var(--color-ink-700)" }}>{u.name}</td>
-                    <td className="text-muted">{u.email}</td>
-                    <td>
-                      <span className="badge badge-role">{u.role}</span>
-                    </td>
-                    <td className="text-muted">{u.department || "—"}</td>
-                    <td>
-                      <button
-                        onClick={() => toggleActive(u)}
-                        className={`badge status-toggle ${u.is_active ? "active" : "inactive"}`}
-                      >
-                        {u.is_active ? "Active" : "Disabled"}
-                      </button>
-                    </td>
-                    <td>
-                      <div className="actions-cell">
-                        <button
-                          onClick={() => handleDelete(u)}
-                          className="btn-icon btn-icon--danger"
-                          title="Remove user"
-                        >
-                          <Trash2 size={15} />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+            {deptSummary && (
+              <FinanceCharts trend={deptSummary.trend} categoryBreakdown={deptSummary.category_breakdown} />
+            )}
+
+            {deptLoading ? (
+              <div className="card empty-state">Loading...</div>
+            ) : activeDept === "Caredx" ? (
+              <>
+                <div>
+                  <p className="section-title" style={{ marginBottom: 12 }}>Lab Data Entries</p>
+                  {caredxLabEntries.length === 0 ? (
+                    <div className="card empty-state">No lab entries found for this filter.</div>
+                  ) : (
+                    <div className="card table-wrap">
+                      <table className="data-table">
+                        <thead>
+                          <tr>
+                            <th>Date</th>
+                            <th>Patient</th>
+                            <th>Test</th>
+                            <th>Employee</th>
+                            <th className="text-right">Total Paid</th>
+                            <th>Referral By</th>
+                            <th className="text-right">Referral Amount</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {caredxLabEntries.map((e) => (
+                            <tr key={e.id}>
+                              <td style={{ whiteSpace: "nowrap" }}>{e.entry_date}</td>
+                              <td>{e.patient_name}</td>
+                              <td>{e.test_name}</td>
+                              <td>{e.employee_name || "—"}</td>
+                              <td className="text-right" style={{ fontWeight: 600 }}>{formatCurrency(e.total_amount_paid)}</td>
+                              <td>{e.referral_by || "—"}</td>
+                              <td className="text-right">{formatCurrency(e.referral_amount)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+
+                <div>
+                  <p className="section-title" style={{ marginBottom: 12 }}>Expenses</p>
+                  {caredxExpenses.length === 0 ? (
+                    <div className="card empty-state">No expenses found for this filter.</div>
+                  ) : (
+                    <div className="card table-wrap">
+                      <table className="data-table">
+                        <thead>
+                          <tr>
+                            <th>Date</th>
+                            <th>Category</th>
+                            <th className="text-right">Amount</th>
+                            <th>Remarks</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {caredxExpenses.map((e) => (
+                            <tr key={e.id}>
+                              <td style={{ whiteSpace: "nowrap" }}>{e.expense_date}</td>
+                              <td>{e.category}</td>
+                              <td className="text-right" style={{ fontWeight: 600 }}>{formatCurrency(e.amount)}</td>
+                              <td className="truncate">{e.remarks || "—"}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              </>
+            ) : (
+              <div>
+                <p className="section-title" style={{ marginBottom: 12 }}>{activeDept} Finance Entries</p>
+                <FinanceTable entries={deptEntries} onEdit={() => {}} onDelete={() => {}} />
+              </div>
+            )}
+          </>
         )}
       </main>
-
-      {formOpen && (
-        <div className="modal-overlay">
-          <div className="modal" style={{ maxWidth: 440 }}>
-            <div className="modal-header">
-              <h2>Add New User</h2>
-              <button onClick={() => setFormOpen(false)} className="modal-close">
-                <X size={20} />
-              </button>
-            </div>
-            <form onSubmit={handleCreate} className="modal-body">
-              <div className="form-group">
-                <label className="form-label">Full Name</label>
-                <input
-                  className="form-control"
-                  value={form.name}
-                  onChange={(e) => setForm({ ...form, name: e.target.value })}
-                  required
-                />
-              </div>
-              <div className="form-group">
-                <label className="form-label">Email</label>
-                <input
-                  type="email"
-                  className="form-control"
-                  value={form.email}
-                  onChange={(e) => setForm({ ...form, email: e.target.value })}
-                  required
-                />
-              </div>
-              <div className="form-group">
-                <label className="form-label">Temporary Password</label>
-                <input
-                  type="text"
-                  className="form-control"
-                  value={form.password}
-                  onChange={(e) => setForm({ ...form, password: e.target.value })}
-                  placeholder="Min. 6 characters"
-                  required
-                />
-              </div>
-              <div className="form-row">
-                <div className="form-group">
-                  <label className="form-label">Role</label>
-                  <select
-                    className="form-control"
-                    value={form.role}
-                    onChange={(e) => setForm({ ...form, role: e.target.value })}
-                  >
-                    {ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
-                  </select>
-                </div>
-                <div className="form-group">
-                  <label className="form-label">Department</label>
-                  <input
-                    className="form-control"
-                    value={form.department}
-                    onChange={(e) => setForm({ ...form, department: e.target.value })}
-                    placeholder={form.role}
-                  />
-                </div>
-              </div>
-              <div className="modal-footer">
-                <button type="button" onClick={() => setFormOpen(false)} className="btn btn-secondary">Cancel</button>
-                <button type="submit" disabled={saving} className="btn btn-primary">
-                  {saving ? "Creating..." : "Create User"}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

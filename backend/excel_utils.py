@@ -220,6 +220,8 @@ def build_lab_entries_workbook(entries):
     wb.save(buffer)
     buffer.seek(0)
     return buffer
+
+
 FINANCE_HEADER_ALIASES = {
     "date": "entry_date",
     "type": "entry_type",
@@ -237,6 +239,10 @@ FINANCE_HEADER_ALIASES = {
     "client name": "client_name",
     "name of the client": "client_name",
     "client": "client_name",
+    "gst number": "gst_number",
+    "gst no": "gst_number",
+    "gstin": "gst_number",
+    "gst": "gst_number",
     "amount": "amount",
     "amount (inr)": "amount",
     "remarks": "remarks",
@@ -252,6 +258,7 @@ FINANCE_FIELD_LABELS = {
     "patient_name": "Patient Name",
     "patient_place": "Patient Place",
     "client_name": "Client Name",
+    "gst_number": "GST Number",
     "amount": "Amount",
     "remarks": "Remarks",
 }
@@ -261,6 +268,8 @@ def _finance_columns_for_config(config):
     columns = ["entry_date", "entry_type", "category"]
     if config.get("show_client_name"):
         columns.append("client_name")
+    if config.get("show_gst_number"):
+        columns.append("gst_number")
     if config.get("show_generated_by"):
         columns.append("generated_by")
     if config.get("show_revenue_type"):
@@ -319,12 +328,20 @@ def parse_finance_entries_workbook(file_stream, config, entry_types, allowed_cat
             record["entry_type"] = matched or entry_types[0]
 
         allowed = allowed_categories_by_type.get(record["entry_type"], [])
-        if record.get("category") not in allowed:
-            errors.append(
-                f"Row {row_num}: category '{record.get('category')}' is not valid for "
-                f"{record['entry_type']} — skipped."
-            )
-            continue
+        category_value = record.get("category")
+        if category_value not in allowed:
+            # Departments that support a free-text "Others" category (e.g.
+            # PCM) accept any non-empty category value from the sheet
+            # instead of rejecting it — that's how a custom category typed
+            # directly into the sheet round-trips through import.
+            if "Others" in allowed and category_value:
+                pass
+            else:
+                errors.append(
+                    f"Row {row_num}: category '{category_value}' is not valid for "
+                    f"{record['entry_type']} — skipped."
+                )
+                continue
 
         if not record.get("amount") or record["amount"] <= 0:
             errors.append(f"Row {row_num}: missing or invalid Amount — skipped.")
@@ -372,7 +389,7 @@ def build_finance_entries_workbook(entries, config, department):
     widths = {
         "entry_date": 12, "entry_type": 12, "category": 20, "generated_by": 22,
         "revenue_type": 16, "patient_name": 22, "patient_place": 20,
-        "client_name": 22, "amount": 14, "remarks": 30,
+        "client_name": 22, "gst_number": 18, "amount": 14, "remarks": 30,
     }
     for col_idx, field in enumerate(columns, start=1):
         ws.column_dimensions[get_column_letter(col_idx)].width = widths.get(field, 16)
