@@ -94,7 +94,7 @@ export default function CaredxExpenseForm({ open, onClose, onSaved, editingExpen
               name="category"
               value={form.category}
               onChange={handleChange}
-              placeholder="e.g. Lab Chemicals, Syringe Box, Pamphlets Distribution"
+              placeholder="e.g. Lab Chemicals, Syringe Box, etc."
               className="form-control"
               list="expense-category-suggestions"
             />
@@ -106,6 +106,14 @@ export default function CaredxExpenseForm({ open, onClose, onSaved, editingExpen
               <option value="Pamphlets Distribution" />
               <option value="Salaries" />
               <option value="Rent" />
+              <option value="Utilities" />
+              <option value="Maintenance" />
+              <option value="Office Supplies" />
+              <option value="Travel" />
+              <option value="Training" />
+              <option value="Insurance" />
+              <option value="Licensing" />
+              <option value="Other" />
             </datalist>
           </div>
 

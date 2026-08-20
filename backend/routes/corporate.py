@@ -1,17 +1,15 @@
-"""PCM finance routes — Income/Expenses entries with new Home Health categories."""
+"""Corporate Management routes — Income/Expenses entries."""
 from datetime import datetime, date
-from flask import Blueprint, request, jsonify, send_file
+from flask import Blueprint, request, jsonify
 from flask_jwt_extended import get_jwt_identity
 
 from models import db, FinanceEntry, ENTRY_TYPES, DEPARTMENT_CONFIG
 from utils import role_required
-from excel_utils import parse_finance_entries_workbook, build_finance_entries_workbook
 
-DEPARTMENT = "PCM"
+DEPARTMENT = "Corporate"
 CONFIG = DEPARTMENT_CONFIG[DEPARTMENT]
 
-pcm_bp = Blueprint("pcm", __name__, url_prefix="/api/pcm")
-
+corporate_bp = Blueprint("corporate", __name__, url_prefix="/api/corporate")
 
 def _parse_date(value, default=None):
     if not value:
@@ -20,7 +18,6 @@ def _parse_date(value, default=None):
         return datetime.strptime(value, "%Y-%m-%d").date()
     except ValueError:
         return default
-
 
 def _apply_date_filters(query):
     start_date = _parse_date(request.args.get("start_date"))
@@ -31,9 +28,8 @@ def _apply_date_filters(query):
         query = query.filter(FinanceEntry.entry_date <= end_date)
     return query
 
-
-@pcm_bp.route("/options", methods=["GET"])
-@role_required("PCM")
+@corporate_bp.route("/options", methods=["GET"])
+@role_required("Corporate")
 def options():
     return jsonify({
         "department": DEPARTMENT,
@@ -43,37 +39,44 @@ def options():
         "show_generated_by": CONFIG["show_generated_by"],
         "show_revenue_type": CONFIG["show_revenue_type"],
         "show_patient_fields": CONFIG["show_patient_fields"],
+        "show_client_name": CONFIG["show_client_name"],
+        "show_gst_number": CONFIG["show_gst_number"],
+        "show_items": CONFIG["show_items"],
+        "show_invoice": CONFIG["show_invoice"],
+        # Indicate that we support executive compensation fields
+        "show_executive_compensation": True,
     }), 200
 
-
-@pcm_bp.route("/entries", methods=["POST"])
-@role_required("PCM")
+@corporate_bp.route("/entries", methods=["POST"])
+@role_required("Corporate")
 def create_entry():
     data = request.get_json(silent=True) or {}
-
     entry_type = data.get("entry_type")
     category = data.get("category")
     amount = data.get("amount")
     remarks = data.get("remarks", "")
-    patient_name = (data.get("patient_name") or "").strip() or None
-    patient_place = (data.get("patient_place") or "").strip() or None
+    generated_by = data.get("generated_by", "").strip() or None
+    client_name = data.get("client_name", "").strip() or None
     entry_date = _parse_date(data.get("entry_date"), default=date.today())
+
+    # Executive compensation fields
+    exec_department = data.get("exec_department")
+    employee_name = (data.get("employee_name") or "").strip() or None
+    salary_amount = data.get("salary_amount")
+    allowance_amount = data.get("allowance_amount")
 
     errors = []
     if entry_type not in ENTRY_TYPES:
         errors.append("entry_type must be Income or Expenses.")
-
     allowed_categories = CONFIG["categories"].get(entry_type, [])
     if category not in allowed_categories:
         errors.append(f"category must be one of: {', '.join(allowed_categories)}.")
-
     try:
         amount = float(amount)
         if amount <= 0:
             errors.append("amount must be greater than 0.")
     except (TypeError, ValueError):
         errors.append("amount must be a number.")
-
     if errors:
         return jsonify({"message": "Validation failed.", "errors": errors}), 400
 
@@ -81,75 +84,61 @@ def create_entry():
         department=DEPARTMENT,
         entry_type=entry_type,
         category=category,
-        patient_name=patient_name,
-        patient_place=patient_place,
+        generated_by=generated_by,
+        client_name=client_name,
         amount=amount,
         remarks=remarks,
         entry_date=entry_date,
         created_by_id=get_jwt_identity(),
+        exec_department=exec_department,
+        employee_name=employee_name,
+        salary_amount=salary_amount,
+        allowance_amount=allowance_amount,
     )
     db.session.add(entry)
     db.session.commit()
-
     return jsonify({"message": "Entry created.", "entry": entry.to_dict()}), 201
 
-
-@pcm_bp.route("/entries", methods=["GET"])
-@role_required("PCM")
+@corporate_bp.route("/entries", methods=["GET"])
+@role_required("Corporate")
 def list_entries():
     query = FinanceEntry.query.filter_by(department=DEPARTMENT)
     query = _apply_date_filters(query)
-
     entry_type = request.args.get("entry_type")
     if entry_type in ENTRY_TYPES:
         query = query.filter(FinanceEntry.entry_type == entry_type)
-
     category = request.args.get("category")
     if category:
         query = query.filter(FinanceEntry.category == category)
-
     search = request.args.get("search")
     if search:
         like = f"%{search}%"
         query = query.filter(
             db.or_(
                 FinanceEntry.remarks.ilike(like),
-                FinanceEntry.patient_name.ilike(like),
-                FinanceEntry.patient_place.ilike(like),
+                FinanceEntry.generated_by.ilike(like),
+                FinanceEntry.client_name.ilike(like),
                 FinanceEntry.category.ilike(like),
+                FinanceEntry.employee_name.ilike(like),
+                FinanceEntry.exec_department.ilike(like),
             )
         )
-
     query = query.order_by(FinanceEntry.entry_date.desc(), FinanceEntry.id.desc())
     return jsonify({"entries": [e.to_dict() for e in query.all()]}), 200
 
-
-@pcm_bp.route("/entries/<int:entry_id>", methods=["PUT"])
-@role_required("PCM")
+@corporate_bp.route("/entries/<int:entry_id>", methods=["PUT"])
+@role_required("Corporate")
 def update_entry(entry_id):
     entry = FinanceEntry.query.filter_by(id=entry_id, department=DEPARTMENT).first()
     if not entry:
         return jsonify({"message": "Entry not found."}), 404
-
     data = request.get_json(silent=True) or {}
-    new_type = data.get("entry_type", entry.entry_type)
-    allowed_categories = CONFIG["categories"].get(new_type, [])
-
-    errors = []
-
     if "entry_type" in data and data["entry_type"] in ENTRY_TYPES:
         entry.entry_type = data["entry_type"]
-
     if "category" in data:
-        if data["category"] not in allowed_categories:
-            errors.append(f"category must be one of: {', '.join(allowed_categories)}.")
-        else:
+        allowed = CONFIG["categories"].get(entry.entry_type, [])
+        if data["category"] in allowed:
             entry.category = data["category"]
-
-    if "patient_name" in data:
-        entry.patient_name = (data["patient_name"] or "").strip() or None
-    if "patient_place" in data:
-        entry.patient_place = (data["patient_place"] or "").strip() or None
     if "amount" in data:
         try:
             amount = float(data["amount"])
@@ -157,6 +146,10 @@ def update_entry(entry_id):
                 entry.amount = amount
         except (TypeError, ValueError):
             pass
+    if "generated_by" in data:
+        entry.generated_by = data["generated_by"].strip() or None
+    if "client_name" in data:
+        entry.client_name = data["client_name"].strip() or None
     if "remarks" in data:
         entry.remarks = data["remarks"]
     if "entry_date" in data:
@@ -164,15 +157,27 @@ def update_entry(entry_id):
         if parsed:
             entry.entry_date = parsed
 
-    if errors:
-        return jsonify({"message": "Validation failed.", "errors": errors}), 400
+    # Executive compensation fields
+    if "exec_department" in data:
+        entry.exec_department = data["exec_department"]
+    if "employee_name" in data:
+        entry.employee_name = data["employee_name"].strip() or None
+    if "salary_amount" in data:
+        try:
+            entry.salary_amount = float(data["salary_amount"])
+        except (TypeError, ValueError):
+            pass
+    if "allowance_amount" in data:
+        try:
+            entry.allowance_amount = float(data["allowance_amount"])
+        except (TypeError, ValueError):
+            pass
 
     db.session.commit()
     return jsonify({"message": "Entry updated.", "entry": entry.to_dict()}), 200
 
-
-@pcm_bp.route("/entries/<int:entry_id>", methods=["DELETE"])
-@role_required("PCM")
+@corporate_bp.route("/entries/<int:entry_id>", methods=["DELETE"])
+@role_required("Corporate")
 def delete_entry(entry_id):
     entry = FinanceEntry.query.filter_by(id=entry_id, department=DEPARTMENT).first()
     if not entry:
@@ -181,27 +186,22 @@ def delete_entry(entry_id):
     db.session.commit()
     return jsonify({"message": "Entry deleted."}), 200
 
-
-@pcm_bp.route("/summary", methods=["GET"])
-@role_required("PCM")
+@corporate_bp.route("/summary", methods=["GET"])
+@role_required("Corporate")
 def finance_summary():
     entries = _apply_date_filters(FinanceEntry.query.filter_by(department=DEPARTMENT)).all()
-
     total_income = sum(float(e.amount) for e in entries if e.entry_type == "Income")
     total_expenses = sum(float(e.amount) for e in entries if e.entry_type == "Expenses")
-
     by_date = {}
     for e in entries:
         key = e.entry_date.isoformat()
         by_date.setdefault(key, {"date": key, "income": 0, "expenses": 0})
         by_date[key]["income" if e.entry_type == "Income" else "expenses"] += float(e.amount)
     trend = sorted(by_date.values(), key=lambda x: x["date"])
-
     by_category = {}
     for e in entries:
         by_category.setdefault(e.category, {"category": e.category, "amount": 0})
         by_category[e.category]["amount"] += float(e.amount)
-
     return jsonify({
         "department": DEPARTMENT,
         "total_income": total_income,
@@ -211,66 +211,3 @@ def finance_summary():
         "trend": trend,
         "category_breakdown": list(by_category.values()),
     }), 200
-
-
-@pcm_bp.route("/import", methods=["POST"])
-@role_required("PCM")
-def import_entries():
-    """Upload an .xlsx sheet; parsed rows are inserted as FinanceEntry rows for PCM."""
-    file = request.files.get("file")
-    if not file or file.filename == "":
-        return jsonify({"message": "No file uploaded."}), 400
-    if not file.filename.lower().endswith((".xlsx", ".xlsm")):
-        return jsonify({"message": "Please upload an .xlsx file."}), 400
-
-    try:
-        rows, errors = parse_finance_entries_workbook(
-            file.stream, CONFIG, ENTRY_TYPES, CONFIG["categories"]
-        )
-    except Exception:
-        return jsonify({"message": "Could not read the uploaded file. Make sure it's a valid .xlsx."}), 400
-
-    if not rows:
-        return jsonify({
-            "message": "No valid rows found in the uploaded sheet.",
-            "imported": 0,
-            "errors": errors,
-        }), 400
-
-    created_by_id = get_jwt_identity()
-    for row in rows:
-        db.session.add(FinanceEntry(
-            department=DEPARTMENT,
-            entry_type=row["entry_type"],
-            category=row["category"],
-            patient_name=row.get("patient_name"),
-            patient_place=row.get("patient_place"),
-            amount=row["amount"],
-            remarks=row.get("remarks"),
-            entry_date=row["entry_date"],
-            created_by_id=created_by_id,
-        ))
-    db.session.commit()
-
-    return jsonify({
-        "message": f"Imported {len(rows)} entr{'y' if len(rows) == 1 else 'ies'}.",
-        "imported": len(rows),
-        "errors": errors,
-    }), 201
-
-
-@pcm_bp.route("/export", methods=["GET"])
-@role_required("PCM")
-def export_entries():
-    query = _apply_date_filters(FinanceEntry.query.filter_by(department=DEPARTMENT))
-    entries = query.order_by(FinanceEntry.entry_date.asc(), FinanceEntry.id.asc()).all()
-
-    buffer = build_finance_entries_workbook(entries, CONFIG, DEPARTMENT)
-    filename = f"PCM_Finance_Entries_{date.today().isoformat()}.xlsx"
-
-    return send_file(
-        buffer,
-        as_attachment=True,
-        download_name=filename,
-        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    )

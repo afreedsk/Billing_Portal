@@ -48,8 +48,7 @@ export default function Login() {
         </div>
 
         <div className="login-brand">
-          <h1>Billing Portal</h1>
-          <p>One login for IT, PCM, MedTech, Caredx &amp; SuperAdmin</p>
+          <h1>Finance Hub Dashboard</h1>
         </div>
 
         <div className="login-card">
@@ -96,11 +95,6 @@ export default function Login() {
               {loading ? "Signing in..." : "Sign In"}
             </button>
           </form>
-
-          <p className="login-footer-note">
-            Your dashboard is determined automatically by your account role —
-            no need to pick a portal.
-          </p>
         </div>
       </div>
     </div>

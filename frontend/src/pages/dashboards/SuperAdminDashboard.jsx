@@ -14,8 +14,8 @@ import FinanceCharts from "../../components/FinanceCharts.jsx";
 import FinanceTable from "../../components/FinanceTable.jsx";
 import api from "../../api/axios.js";
 
-const DEPARTMENTS = ["IT", "PCM", "MedTech", "Caredx"];
-const PIE_COLORS = ["#2f5dd4", "#16a34a", "#d97706", "#8b5cf6", "#dc2626"];
+const DEPARTMENTS = ["IT", "PCM", "MedTech", "Caredx", "Corporate", "Adminstrationfunctionalunit", "ResearchDevelopment"];
+const PIE_COLORS = ["#2f5dd4", "#16a34a", "#d97706", "#8b5cf6", "#dc2626", "#0ea5e9", "#8b5cf6"];
 
 const formatCurrency = (value) =>
   new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 }).format(value || 0);

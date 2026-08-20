@@ -7,6 +7,10 @@ import PCMDashboard from "./pages/dashboards/PCMDashboard.jsx";
 import MedTechDashboard from "./pages/dashboards/MedTechDashboard.jsx";
 import CaredxDashboard from "./pages/dashboards/CaredxDashboard.jsx";
 import SuperAdminDashboard from "./pages/dashboards/SuperAdminDashboard.jsx";
+import CorporateDashboard from "./pages/dashboards/CorporateDashboard.jsx";
+import AdminFunctionalUnitDashboard from "./pages/dashboards/AdminFunctionalUnitDashboard.jsx";
+import ResearchDevelopmentDashboard from "./pages/dashboards/ResearchDevelopmentDashboard.jsx";
+
 
 export default function App() {
   return (
@@ -45,6 +49,9 @@ export default function App() {
           </ProtectedRoute>
         }
       />
+      <Route path="/dashboard/corporate" element={<CorporateDashboard />} />
+<Route path="/dashboard/adminfunctionalunit" element={<AdminFunctionalUnitDashboard />} />
+<Route path="/dashboard/researchdevelopment" element={<ResearchDevelopmentDashboard />} />
       <Route
         path="/dashboard/admin"
         element={

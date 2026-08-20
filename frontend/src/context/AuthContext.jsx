@@ -3,13 +3,15 @@ import api from "../api/axios.js";
 
 const AuthContext = createContext(null);
 
-// Maps each role to the dashboard route it should land on after login
 export const ROLE_ROUTES = {
   SuperAdmin: "/dashboard/admin",
   IT: "/dashboard/it",
   PCM: "/dashboard/pcm",
   MedTech: "/dashboard/medtech",
   Caredx: "/dashboard/caredx",
+  Corporate: "/dashboard/corporate",
+  Adminstrationfunctionalunit: "/dashboard/adminfunctionalunit",
+  ResearchDevelopment: "/dashboard/researchdevelopment",
 };
 
 export function AuthProvider({ children }) {

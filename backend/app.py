@@ -21,6 +21,10 @@ def create_app():
     from routes.caredx import caredx_bp
     from routes.superadmin import superadmin_bp
     from routes.files import files_bp
+    from routes.corporate import corporate_bp
+    from routes.adminfunctionalunit import adminfunctionalunit_bp
+    from routes.researchdevelopment import researchdevelopment_bp
+
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(it_bp)
@@ -29,6 +33,9 @@ def create_app():
     app.register_blueprint(caredx_bp)
     app.register_blueprint(superadmin_bp)
     app.register_blueprint(files_bp)
+    app.register_blueprint(corporate_bp)
+    app.register_blueprint(adminfunctionalunit_bp)
+    app.register_blueprint(researchdevelopment_bp)
 
     @app.route("/api/health", methods=["GET"])
     def health():

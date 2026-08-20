@@ -4,7 +4,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 
 db = SQLAlchemy()
 
-ROLES = ["SuperAdmin", "IT", "PCM", "MedTech", "Caredx"]
+ROLES = ["SuperAdmin", "IT", "PCM", "MedTech", "Caredx", "Corporate", "Adminstrationfunctionalunit", "ResearchDevelopment"]
 ENTRY_TYPES = ["Income", "Expenses"]
 
 DEPARTMENT_CONFIG = {
@@ -22,6 +22,8 @@ DEPARTMENT_CONFIG = {
         "gst_required_categories": [],
         "show_items": False,
         "show_invoice": True,
+        "show_gst_tax": False,
+        "show_tax_invoice_number": False,
     },
     "Caredx": {
         "categories": {
@@ -37,15 +39,27 @@ DEPARTMENT_CONFIG = {
         "gst_required_categories": [],
         "show_items": False,
         "show_invoice": False,
+        "show_gst_tax": False,
+        "show_tax_invoice_number": False,
     },
     "PCM": {
         "categories": {
-            # "Others" lets the person type a free-text category name in the
-            # entry form instead of picking from the fixed list — see
-            # routes/pcm.py, which resolves "Others" + other_category into
-            # the actual stored category value.
-            "Income": ["Aya", "Care Taker", "Nurse", "RMP", "Physico Care", "Others"],
-            "Expenses": ["Aya", "Care Taker", "Nurse", "RMP", "Physico Care", "Others"],
+            "Income": [
+                "Field Labor and Nursing Care",
+                "Travel and Mileage Reimbursement",
+                "Point-of-Care Technology and Telecom",
+                "Home Medical Supplies and DME",
+                "Intake, Scheduling, and Back-Office Logistics",
+                "Regulatory and Risk Management"
+            ],
+            "Expenses": [
+                "Field Labor and Nursing Care",
+                "Travel and Mileage Reimbursement",
+                "Point-of-Care Technology and Telecom",
+                "Home Medical Supplies and DME",
+                "Intake, Scheduling, and Back-Office Logistics",
+                "Regulatory and Risk Management"
+            ]
         },
         "revenue_types": [],
         "show_generated_by": False,
@@ -56,11 +70,13 @@ DEPARTMENT_CONFIG = {
         "gst_required_categories": [],
         "show_items": False,
         "show_invoice": False,
+        "show_gst_tax": False,
+        "show_tax_invoice_number": False,
     },
     "MedTech": {
         "categories": {
-            "Income": ["Wholesale", "Retail", "D2C"],
-            "Expenses": ["Wholesale", "Retail", "D2C"],
+            "Income": ["Wholesale", "Retail", "B2C"],
+            "Expenses": ["Wholesale", "Retail", "B2C"],
         },
         "revenue_types": ["Direct", "Recurring"],
         "show_generated_by": True,
@@ -71,6 +87,84 @@ DEPARTMENT_CONFIG = {
         "gst_required_categories": ["Wholesale"],
         "show_items": True,
         "show_invoice": True,
+        "show_gst_tax": True,
+        "show_tax_invoice_number": True,
+    },
+    "Corporate": {
+        "categories": {
+            "Income": [
+                "Consulting",
+                "Management Fees",
+                "Other"
+            ],
+            "Expenses": [
+                "Executive Compensation",
+                "Governance & Legal",
+                "Travel Expenses",
+                "Corporate Concierge",
+                "Administration - Workplace Overhead",
+                "Administration - Daily Operations",
+                "Administration - Core IT & SaaS",
+                "Other"
+            ]
+        },
+        "revenue_types": [],
+        "show_generated_by": True,
+        "show_revenue_type": False,
+        "show_patient_fields": False,
+        "show_client_name": True,
+        "show_gst_number": False,
+        "gst_required_categories": [],
+        "show_items": False,
+        "show_invoice": False,
+        "show_gst_tax": False,
+        "show_tax_invoice_number": False,
+    },
+    "Adminstrationfunctionalunit": {
+        "categories": {
+            "Income": ["Internal Allocations", "Other"],
+            "Expenses": [
+                "Rent and Utilities",
+                "Office Maintenance and Supplies",
+                "Staff and Travel",
+                "Professional and Legal Services",
+                "Other"
+            ],
+        },
+        "revenue_types": [],
+        "show_generated_by": True,
+        "show_revenue_type": False,
+        "show_patient_fields": False,
+        "show_client_name": False,
+        "show_gst_number": False,
+        "gst_required_categories": [],
+        "show_items": False,
+        "show_invoice": False,
+        "show_gst_tax": False,
+        "show_tax_invoice_number": False,
+    },
+    "ResearchDevelopment": {
+        "categories": {
+            "Income": ["Grants", "Funding", "Other"],
+            "Expenses": [
+                "R&D Salaries",
+                "Lab Supplies",
+                "Equipment",
+                "Testing",
+                "Other"
+            ],
+        },
+        "revenue_types": [],
+        "show_generated_by": True,
+        "show_revenue_type": False,
+        "show_patient_fields": False,
+        "show_client_name": False,
+        "show_gst_number": False,
+        "gst_required_categories": [],
+        "show_items": False,
+        "show_invoice": False,
+        "show_gst_tax": False,
+        "show_tax_invoice_number": False,
     },
 }
 
@@ -116,13 +210,26 @@ class FinanceEntry(db.Model):
     department = db.Column(db.String(50), nullable=False)
     entry_type = db.Column(db.String(20), nullable=False)
     category = db.Column(db.String(60), nullable=False)
+    sub_category = db.Column(db.String(60), nullable=True)          # AFU sub-category
     generated_by = db.Column(db.String(120), nullable=True)
     revenue_type = db.Column(db.String(50), nullable=True)
     patient_name = db.Column(db.String(150), nullable=True)
     patient_place = db.Column(db.String(150), nullable=True)
     client_name = db.Column(db.String(150), nullable=True)
     gst_number = db.Column(db.String(20), nullable=True)
+
     amount = db.Column(db.Numeric(14, 2), nullable=False)
+    base_amount = db.Column(db.Numeric(14, 2), nullable=True)
+    gst_tax_percent = db.Column(db.Numeric(5, 2), nullable=True)
+    gst_tax_amount = db.Column(db.Numeric(14, 2), nullable=True, default=0)
+    tax_invoice_number = db.Column(db.String(50), nullable=True)
+
+    # Executive compensation fields (Corporate)
+    exec_department = db.Column(db.String(50), nullable=True)
+    employee_name = db.Column(db.String(150), nullable=True)
+    salary_amount = db.Column(db.Numeric(14, 2), nullable=True)
+    allowance_amount = db.Column(db.Numeric(14, 2), nullable=True)
+
     remarks = db.Column(db.Text, nullable=True)
 
     invoice_filename = db.Column(db.String(255), nullable=True)
@@ -149,6 +256,7 @@ class FinanceEntry(db.Model):
             "department": self.department,
             "entry_type": self.entry_type,
             "category": self.category,
+            "sub_category": self.sub_category,
             "generated_by": self.generated_by,
             "revenue_type": self.revenue_type,
             "patient_name": self.patient_name,
@@ -156,6 +264,14 @@ class FinanceEntry(db.Model):
             "client_name": self.client_name,
             "gst_number": self.gst_number,
             "amount": float(self.amount),
+            "base_amount": float(self.base_amount) if self.base_amount is not None else None,
+            "gst_tax_percent": float(self.gst_tax_percent) if self.gst_tax_percent is not None else None,
+            "gst_tax_amount": float(self.gst_tax_amount) if self.gst_tax_amount is not None else None,
+            "tax_invoice_number": self.tax_invoice_number,
+            "exec_department": self.exec_department,
+            "employee_name": self.employee_name,
+            "salary_amount": float(self.salary_amount) if self.salary_amount is not None else None,
+            "allowance_amount": float(self.allowance_amount) if self.allowance_amount is not None else None,
             "remarks": self.remarks,
             "invoice_url": f"/files/invoices/{self.invoice_filename}" if self.invoice_filename else None,
             "invoice_original_name": self.invoice_original_name,
