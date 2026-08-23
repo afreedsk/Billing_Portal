@@ -37,7 +37,7 @@ export default function Navbar({ title, roleColor = "#2f5dd4" }) {
           )}
           <div className="navbar-titles">
             <p className="navbar-title">{title}</p>
-            <p className="navbar-subtitle">Billing Portal</p>
+            <p className="navbar-subtitle">Finance Hub</p>
           </div>
         </div>
 

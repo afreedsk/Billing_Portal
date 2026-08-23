@@ -58,7 +58,8 @@ export default function FinanceEntryForm({
   options,
   editingEntry,
 }) {
-  const apiBase = String(department || "").toLowerCase();
+  // At the top, inside the component:
+const apiBase = String(department || "").toLowerCase().replace(/\s/g, '');
 
   const createEmptyForm = () => ({
     entry_type: "Income",

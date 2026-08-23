@@ -2,14 +2,15 @@ from app import create_app
 from models import db, User
 
 DEMO_USERS = [
-    {"name": "Alice SuperAdmin", "email": "superadmin@primaria.com", "password": "Primaria@123", "role": "SuperAdmin", "department": "Administration"},
-    {"name": "Ian IT",           "email": "it@primaria.com",         "password": "Primaria@123",   "role": "IT",         "department": "IT"},
-    {"name": "Priya PCM",        "email": "pcm@primaria.com",        "password": "Primaria@123",  "role": "PCM",        "department": "PCM"},
-    {"name": "Mark MedTech",     "email": "medtech@primaria.com",    "password": "Primaria@123",  "role": "MedTech",    "department": "MedTech"},
+    {"name": "Raj", "email": "superadmin@primaria.com", "password": "Primaria@123", "role": "SuperAdmin", "department": "Administration"},
+    {"name": "Subbu",           "email": "it@primaria.com",         "password": "Primaria@123",   "role": "IT",         "department": "IT"},
+    {"name": "Manideep",           "email": "itsales@primaria.com",         "password": "Primaria@123",   "role": "IT Sales",         "department": "IT Sales"},
+    {"name": "Swarupa",        "email": "pcm@primaria.com",        "password": "Primaria@123",  "role": "PCM",        "department": "PCM"},
+    {"name": "Injuma",     "email": "medtech@primaria.com",    "password": "Primaria@123",  "role": "MedTech",    "department": "MedTech"},
     {"name": "Afroz Shaik",     "email": "financehub@primaria.com",    "password": "Primaria@123",  "role": "Corporate",    "department": "Corporate"},
-    {"name": "Afroz Shaik",     "email": "adminstrationfunctionalunit@primaria.com",    "password": "Primaria@123",  "role": "Adminstrationfunctionalunit",    "department": "Adminstrationfunctionalunit"},
-    {"name": "Afroz Shaik",     "email": "rd@primaria.com",    "password": "Primaria@123",  "role": "ResearchDevelopment",    "department": "ResearchDevelopment"},
-    {"name": "Cara Caredx",      "email": "caredx@primaria.com",     "password": "Primaria@123",  "role": "Caredx",     "department": "Caredx"},
+    {"name": "Kishore M",     "email": "adminstrationfunctionalunit@primaria.com",    "password": "Primaria@123",  "role": "Adminstrationfunctionalunit",    "department": "Adminstrationfunctionalunit"},
+    {"name": "Afreed",     "email": "rd@primaria.com",    "password": "Primaria@123",  "role": "ResearchDevelopment",    "department": "ResearchDevelopment"},
+    {"name": "Kumar M",      "email": "caredx@primaria.com",     "password": "Primaria@123",  "role": "Caredx",     "department": "Caredx"},
 ]
 
 app = create_app()

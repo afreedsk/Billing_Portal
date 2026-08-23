@@ -76,7 +76,7 @@ def create_entry():
     allowed_categories = CONFIG["categories"].get(entry_type, [])
     if category not in allowed_categories:
         errors.append(f"category must be one of: {', '.join(allowed_categories)}.")
-    
+
     if category in SUB_CATEGORIES:
         allowed_sub = SUB_CATEGORIES[category]
         if not sub_category:

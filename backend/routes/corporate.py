@@ -1,6 +1,6 @@
 """Corporate Management routes — Income/Expenses entries."""
 from datetime import datetime, date
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, current_app
 from flask_jwt_extended import get_jwt_identity
 
 from models import db, FinanceEntry, ENTRY_TYPES, DEPARTMENT_CONFIG
@@ -11,6 +11,7 @@ CONFIG = DEPARTMENT_CONFIG[DEPARTMENT]
 
 corporate_bp = Blueprint("corporate", __name__, url_prefix="/api/corporate")
 
+
 def _parse_date(value, default=None):
     if not value:
         return default
@@ -18,6 +19,23 @@ def _parse_date(value, default=None):
         return datetime.strptime(value, "%Y-%m-%d").date()
     except ValueError:
         return default
+
+
+def _parse_decimal(value):
+    """Return a float for numeric-ish input, or None for blank/invalid values.
+
+    Without this, an empty string ("") sent from the form for salary_amount /
+    allowance_amount gets passed straight into a Numeric(14,2) DB column,
+    which the DB driver can't cast, raising an exception during commit that
+    surfaces to the client as a bare 500 Internal Server Error.
+    """
+    if value in (None, ""):
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
 
 def _apply_date_filters(query):
     start_date = _parse_date(request.args.get("start_date"))
@@ -27,6 +45,7 @@ def _apply_date_filters(query):
     if end_date:
         query = query.filter(FinanceEntry.entry_date <= end_date)
     return query
+
 
 @corporate_bp.route("/options", methods=["GET"])
 @role_required("Corporate")
@@ -47,6 +66,7 @@ def options():
         "show_executive_compensation": True,
     }), 200
 
+
 @corporate_bp.route("/entries", methods=["POST"])
 @role_required("Corporate")
 def create_entry():
@@ -59,11 +79,13 @@ def create_entry():
     client_name = data.get("client_name", "").strip() or None
     entry_date = _parse_date(data.get("entry_date"), default=date.today())
 
-    # Executive compensation fields
-    exec_department = data.get("exec_department")
+    # Executive compensation fields (only meaningful when
+    # category == "Executive Compensation", but the form always sends them,
+    # so they must be safely parsed/nulled regardless of category).
+    exec_department = data.get("exec_department") or None
     employee_name = (data.get("employee_name") or "").strip() or None
-    salary_amount = data.get("salary_amount")
-    allowance_amount = data.get("allowance_amount")
+    salary_amount = _parse_decimal(data.get("salary_amount"))
+    allowance_amount = _parse_decimal(data.get("allowance_amount"))
 
     errors = []
     if entry_type not in ENTRY_TYPES:
@@ -95,9 +117,17 @@ def create_entry():
         salary_amount=salary_amount,
         allowance_amount=allowance_amount,
     )
-    db.session.add(entry)
-    db.session.commit()
+
+    try:
+        db.session.add(entry)
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        current_app.logger.exception("Failed to create Corporate finance entry")
+        return jsonify({"message": "Internal server error."}), 500
+
     return jsonify({"message": "Entry created.", "entry": entry.to_dict()}), 201
+
 
 @corporate_bp.route("/entries", methods=["GET"])
 @role_required("Corporate")
@@ -125,6 +155,7 @@ def list_entries():
         )
     query = query.order_by(FinanceEntry.entry_date.desc(), FinanceEntry.id.desc())
     return jsonify({"entries": [e.to_dict() for e in query.all()]}), 200
+
 
 @corporate_bp.route("/entries/<int:entry_id>", methods=["PUT"])
 @role_required("Corporate")
@@ -157,24 +188,26 @@ def update_entry(entry_id):
         if parsed:
             entry.entry_date = parsed
 
-    # Executive compensation fields
+    # Executive compensation fields — use _parse_decimal so that sending an
+    # empty string correctly *clears* the field instead of being ignored.
     if "exec_department" in data:
-        entry.exec_department = data["exec_department"]
+        entry.exec_department = data["exec_department"] or None
     if "employee_name" in data:
-        entry.employee_name = data["employee_name"].strip() or None
+        entry.employee_name = (data["employee_name"] or "").strip() or None
     if "salary_amount" in data:
-        try:
-            entry.salary_amount = float(data["salary_amount"])
-        except (TypeError, ValueError):
-            pass
+        entry.salary_amount = _parse_decimal(data["salary_amount"])
     if "allowance_amount" in data:
-        try:
-            entry.allowance_amount = float(data["allowance_amount"])
-        except (TypeError, ValueError):
-            pass
+        entry.allowance_amount = _parse_decimal(data["allowance_amount"])
 
-    db.session.commit()
+    try:
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        current_app.logger.exception("Failed to update Corporate finance entry %s", entry_id)
+        return jsonify({"message": "Internal server error."}), 500
+
     return jsonify({"message": "Entry updated.", "entry": entry.to_dict()}), 200
+
 
 @corporate_bp.route("/entries/<int:entry_id>", methods=["DELETE"])
 @role_required("Corporate")
@@ -182,9 +215,16 @@ def delete_entry(entry_id):
     entry = FinanceEntry.query.filter_by(id=entry_id, department=DEPARTMENT).first()
     if not entry:
         return jsonify({"message": "Entry not found."}), 404
-    db.session.delete(entry)
-    db.session.commit()
+    try:
+        db.session.delete(entry)
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        current_app.logger.exception("Failed to delete Corporate finance entry %s", entry_id)
+        return jsonify({"message": "Internal server error."}), 500
+
     return jsonify({"message": "Entry deleted."}), 200
+
 
 @corporate_bp.route("/summary", methods=["GET"])
 @role_required("Corporate")

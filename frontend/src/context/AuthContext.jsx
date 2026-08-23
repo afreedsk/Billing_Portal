@@ -6,6 +6,7 @@ const AuthContext = createContext(null);
 export const ROLE_ROUTES = {
   SuperAdmin: "/dashboard/admin",
   IT: "/dashboard/it",
+  "IT Sales": "/dashboard/itsales",
   PCM: "/dashboard/pcm",
   MedTech: "/dashboard/medtech",
   Caredx: "/dashboard/caredx",

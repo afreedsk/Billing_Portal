@@ -4,14 +4,21 @@ from werkzeug.security import generate_password_hash, check_password_hash
 
 db = SQLAlchemy()
 
-ROLES = ["SuperAdmin", "IT", "PCM", "MedTech", "Caredx", "Corporate", "Adminstrationfunctionalunit", "ResearchDevelopment"]
+ROLES = ["SuperAdmin", "IT", "IT Sales","PCM", "MedTech", "Caredx", "Corporate", "Adminstrationfunctionalunit", "ResearchDevelopment"]
 ENTRY_TYPES = ["Income", "Expenses"]
 
 DEPARTMENT_CONFIG = {
     "IT": {
         "categories": {
             "Income": ["Web Services", "Portal Services", "Others"],
-            "Expenses": ["Web Services", "Portal Services", "Others"],
+            "Expenses": [
+                "Personal Costs (Salaries, Bonuses, Wages)",
+                "Software Licenses and Cloud Services",
+                "Hardware & Infrastructure Maintenance",
+                "Third-party Contractors and Vendors",
+                "Facilities or Overhead Costs (Office Space Rent and Utilities)",
+                "Others"
+            ],
         },
         "revenue_types": ["Subscription", "One-Time", "Renewal", "Maintenance", "Other"],
         "show_generated_by": True,
@@ -25,6 +32,37 @@ DEPARTMENT_CONFIG = {
         "show_gst_tax": False,
         "show_tax_invoice_number": False,
     },
+
+    "IT Sales": {  # NEW
+        "categories": {
+            "Income": [
+                "Software Sales",
+                "Hardware Sales",
+                "Consulting",
+                "Support & Maintenance",
+                "Others"
+            ],
+            "Expenses": [
+                "Hardware and Infrastructure Reselling (Servers, Equipment)",
+                "Personal Costs and Compensation (Salaries, Bonuses, Benefits, Recruiter Hiring)",
+                "Travel, Entertainment and Field Costs (Client Meetings, Dinners, Team Lunch, Conferences)",
+                "Software Services and Implementations",
+                "Others"
+            ]
+        },
+        "revenue_types": ["Direct", "Recurring", "Project-based"],
+        "show_generated_by": True,
+        "show_revenue_type": True,
+        "show_patient_fields": False,
+        "show_client_name": True,
+        "show_gst_number": True,
+        "gst_required_categories": ["Hardware Sales", "Software Sales"],
+        "show_items": False,
+        "show_invoice": True,
+        "show_gst_tax": True,
+        "show_tax_invoice_number": True,
+    },
+
     "Caredx": {
         "categories": {
             "Income": ["Lab", "Camp", "Walkin/Person", "Referral"],

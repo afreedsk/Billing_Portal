@@ -1,4 +1,4 @@
-from flask import Flask, jsonify
+from flask import Flask, jsonify, request
 from flask_cors import CORS
 from flask_jwt_extended import JWTManager
 
@@ -12,8 +12,21 @@ def create_app():
 
     db.init_app(app)
     JWTManager(app)
+
+    # Global CORS (for preflight)
     CORS(app, resources={r"/api/*": {"origins": app.config["FRONTEND_ORIGIN"]}}, supports_credentials=True)
 
+    # Ensure CORS headers on ALL responses (including errors)
+    @app.after_request
+    def after_request(response):
+        origin = app.config.get("FRONTEND_ORIGIN", "http://localhost:5173")
+        response.headers.add('Access-Control-Allow-Origin', origin)
+        response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
+        response.headers.add('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS')
+        response.headers.add('Access-Control-Allow-Credentials', 'true')
+        return response
+
+    # Register blueprints
     from routes.auth import auth_bp
     from routes.it import it_bp
     from routes.pcm import pcm_bp
@@ -24,7 +37,7 @@ def create_app():
     from routes.corporate import corporate_bp
     from routes.adminfunctionalunit import adminfunctionalunit_bp
     from routes.researchdevelopment import researchdevelopment_bp
-
+    from routes.itsales import itsales_bp   # <-- make sure this import works
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(it_bp)
@@ -36,6 +49,7 @@ def create_app():
     app.register_blueprint(corporate_bp)
     app.register_blueprint(adminfunctionalunit_bp)
     app.register_blueprint(researchdevelopment_bp)
+    app.register_blueprint(itsales_bp)      # <-- make sure this line is present
 
     @app.route("/api/health", methods=["GET"])
     def health():

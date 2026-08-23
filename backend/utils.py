@@ -1,21 +1,22 @@
 from functools import wraps
-from flask import jsonify
+from flask import request, jsonify
 from flask_jwt_extended import get_jwt, verify_jwt_in_request
 
-
-def role_required(*allowed_roles):
-    """Decorator to restrict an endpoint to specific roles.
-    SuperAdmin is always allowed through, in addition to any listed roles.
-    Usage: @role_required("IT")  or  @role_required("IT", "PCM")
-    """
-    def decorator(fn):
-        @wraps(fn)
-        def wrapper(*args, **kwargs):
-            verify_jwt_in_request()
-            claims = get_jwt()
-            role = claims.get("role")
-            if role == "SuperAdmin" or role in allowed_roles:
-                return fn(*args, **kwargs)
-            return jsonify({"message": "You do not have permission to access this resource."}), 403
-        return wrapper
+def role_required(required_role):
+    def decorator(f):
+        @wraps(f)
+        def decorated(*args, **kwargs):
+            # Allow OPTIONS requests (CORS preflight) to pass without auth
+            if request.method == 'OPTIONS':
+                return f(*args, **kwargs)
+            try:
+                verify_jwt_in_request()
+                claims = get_jwt()
+                user_role = claims.get('role')
+                if user_role != required_role:
+                    return jsonify({"message": "Insufficient permissions."}), 403
+            except Exception:
+                return jsonify({"message": "Invalid or missing token."}), 401
+            return f(*args, **kwargs)
+        return decorated
     return decorator

@@ -1,5 +1,5 @@
 import React from "react";
-import { Pencil, Trash2, FileText } from "lucide-react";
+import { Pencil, Trash2, FileText, Eye } from "lucide-react";
 import api from "../api/axios.js";
 
 const formatCurrency = (value) => {
@@ -27,6 +27,7 @@ export default function FinanceTable({
   entries = [],
   onEdit,
   onDelete,
+  onView,   // NEW
 }) {
   if (!entries || entries.length === 0) {
     return (
@@ -44,11 +45,7 @@ export default function FinanceTable({
   const showGeneratedBy = entries.some((entry) => entry?.generated_by);
   const showRevenueType = entries.some((entry) => entry?.revenue_type);
   const showInvoice = entries.some((entry) => entry?.invoice_url);
-
-  // Sub-category (AFU)
   const showSubCategory = entries.some((entry) => entry?.sub_category);
-
-  // Executive compensation fields
   const showExecDepartment = entries.some((entry) => entry?.exec_department);
   const showEmployeeName = entries.some((entry) => entry?.employee_name);
   const showSalaryAmount = entries.some((entry) => entry?.salary_amount !== null && entry?.salary_amount !== undefined);
@@ -131,6 +128,11 @@ export default function FinanceTable({
                 )}
                 <td>
                   <div className="actions-cell">
+                    {onView && (
+                      <button type="button" onClick={() => onView(entry)} className="btn-icon" title="View">
+                        <Eye size={15} />
+                      </button>
+                    )}
                     <button type="button" onClick={() => onEdit?.(entry)} className="btn-icon" title="Edit">
                       <Pencil size={15} />
                     </button>

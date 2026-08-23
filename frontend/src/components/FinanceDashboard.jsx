@@ -25,7 +25,8 @@ const todayStr = () => new Date().toISOString().split("T")[0];
  * upload) and Excel export (GET /pcm/export, downloads a formatted .xlsx).
  */
 export default function FinanceDashboard({ department, title, roleColor }) {
-  const apiBase = department.toLowerCase();
+  // Remove spaces from department name to match URL slug (e.g., "IT Sales" -> "itsales")
+  const apiBase = department.toLowerCase().replace(/\s/g, '');
   const supportsExcelImportExport = department === "PCM";
 
   const [startDate, setStartDate] = useState(firstOfMonth());
@@ -151,7 +152,7 @@ export default function FinanceDashboard({ department, title, roleColor }) {
 
   const handleImportFileChange = async (e) => {
     const file = e.target.files?.[0];
-    e.target.value = ""; // allow re-selecting the same file later
+    e.target.value = "";
     if (!file) return;
 
     const formData = new FormData();

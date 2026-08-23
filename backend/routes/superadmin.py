@@ -1,6 +1,6 @@
 from datetime import datetime, date
 from flask import Blueprint, request, jsonify, send_file
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from flask_jwt_extended import get_jwt_identity
 
 from models import (
@@ -127,16 +127,16 @@ def team_stats():
 @superadmin_bp.route("/overview", methods=["GET"])
 @role_required("SuperAdmin")
 def overview():
-    """High level snapshot across the platform for the SuperAdmin dashboard,
-    now filterable by date range.
+    """
+    High level snapshot across the platform for the SuperAdmin dashboard,
+    filterable by date range.
 
     Optional query params:
         start_date (YYYY-MM-DD) – filter entries on or after this date
         end_date   (YYYY-MM-DD) – filter entries on or before this date
 
     Returns total/active members, platform-wide income/expenses/profit,
-    and a breakdown per department (IT, PCM, MedTech, Caredx) for the
-    given date range. Members counts are always global (not date‑filtered).
+    and a breakdown per department.
     """
     start_date = _parse_date(request.args.get("start_date"))
     end_date = _parse_date(request.args.get("end_date"))
@@ -201,6 +201,7 @@ def overview():
 
 
 def _apply_finance_filters(query, args):
+    """Apply common finance entry filters (date, type, category, search, revenue_type, sub_category)."""
     start_date = _parse_date(args.get("start_date"))
     end_date = _parse_date(args.get("end_date"))
     if start_date:
@@ -216,11 +217,19 @@ def _apply_finance_filters(query, args):
     if category:
         query = query.filter(FinanceEntry.category == category)
 
+    revenue_type = args.get("revenue_type")
+    if revenue_type:
+        query = query.filter(FinanceEntry.revenue_type == revenue_type)
+
+    sub_category = args.get("sub_category")
+    if sub_category:
+        query = query.filter(FinanceEntry.sub_category == sub_category)
+
     search = args.get("search")
     if search:
         like = f"%{search}%"
         query = query.filter(
-            db.or_(
+            or_(
                 FinanceEntry.remarks.ilike(like),
                 FinanceEntry.generated_by.ilike(like),
                 FinanceEntry.client_name.ilike(like),
@@ -260,38 +269,48 @@ def department_options(department):
 
 
 def _caredx_entries():
+    """Return lab entries and expenses with optional section and category filters."""
     start_date = _parse_date(request.args.get("start_date"))
     end_date = _parse_date(request.args.get("end_date"))
     search = request.args.get("search")
+    section = request.args.get("section")   # 'lab' or 'expenses'
+    category = request.args.get("category")
 
-    lab_query = CaredxLabEntry.query
-    if start_date:
-        lab_query = lab_query.filter(CaredxLabEntry.entry_date >= start_date)
-    if end_date:
-        lab_query = lab_query.filter(CaredxLabEntry.entry_date <= end_date)
-    if search:
-        like = f"%{search}%"
-        lab_query = lab_query.filter(
-            db.or_(
-                CaredxLabEntry.patient_name.ilike(like),
-                CaredxLabEntry.test_name.ilike(like),
-                CaredxLabEntry.employee_name.ilike(like),
-                CaredxLabEntry.referral_by.ilike(like),
+    lab_entries = []
+    expenses = []
+
+    if section is None or section == "lab":
+        lab_query = CaredxLabEntry.query
+        if start_date:
+            lab_query = lab_query.filter(CaredxLabEntry.entry_date >= start_date)
+        if end_date:
+            lab_query = lab_query.filter(CaredxLabEntry.entry_date <= end_date)
+        if search:
+            like = f"%{search}%"
+            lab_query = lab_query.filter(
+                or_(
+                    CaredxLabEntry.patient_name.ilike(like),
+                    CaredxLabEntry.test_name.ilike(like),
+                    CaredxLabEntry.employee_name.ilike(like),
+                    CaredxLabEntry.referral_by.ilike(like),
+                )
             )
-        )
-    lab_entries = lab_query.order_by(CaredxLabEntry.entry_date.desc(), CaredxLabEntry.id.desc()).all()
+        lab_entries = lab_query.order_by(CaredxLabEntry.entry_date.desc(), CaredxLabEntry.id.desc()).all()
 
-    exp_query = CaredxExpense.query
-    if start_date:
-        exp_query = exp_query.filter(CaredxExpense.expense_date >= start_date)
-    if end_date:
-        exp_query = exp_query.filter(CaredxExpense.expense_date <= end_date)
-    if search:
-        like = f"%{search}%"
-        exp_query = exp_query.filter(
-            db.or_(CaredxExpense.category.ilike(like), CaredxExpense.remarks.ilike(like))
-        )
-    expenses = exp_query.order_by(CaredxExpense.expense_date.desc(), CaredxExpense.id.desc()).all()
+    if section is None or section == "expenses":
+        exp_query = CaredxExpense.query
+        if start_date:
+            exp_query = exp_query.filter(CaredxExpense.expense_date >= start_date)
+        if end_date:
+            exp_query = exp_query.filter(CaredxExpense.expense_date <= end_date)
+        if search:
+            like = f"%{search}%"
+            exp_query = exp_query.filter(
+                or_(CaredxExpense.category.ilike(like), CaredxExpense.remarks.ilike(like))
+            )
+        if category:
+            exp_query = exp_query.filter(CaredxExpense.category == category)
+        expenses = exp_query.order_by(CaredxExpense.expense_date.desc(), CaredxExpense.id.desc()).all()
 
     return jsonify({
         "lab_entries": [e.to_dict() for e in lab_entries],
@@ -322,33 +341,66 @@ def department_summary(department):
 
     start_date = _parse_date(request.args.get("start_date"))
     end_date = _parse_date(request.args.get("end_date"))
+    revenue_type = request.args.get("revenue_type")
+    category = request.args.get("category")
 
     if department == "Caredx":
-        lab_query = CaredxLabEntry.query
+        section = request.args.get("section")
+
+        if section == "lab":
+            lab_query = CaredxLabEntry.query
+            if start_date:
+                lab_query = lab_query.filter(CaredxLabEntry.entry_date >= start_date)
+            if end_date:
+                lab_query = lab_query.filter(CaredxLabEntry.entry_date <= end_date)
+            lab_entries = lab_query.all()
+            total_income = sum(float(e.total_amount_paid) for e in lab_entries)
+            total_paid = sum(float(e.paid_to_other_labs or 0) for e in lab_entries)
+
+            # Build trend (income per date)
+            by_date = {}
+            for e in lab_entries:
+                key = e.entry_date.isoformat()
+                by_date.setdefault(key, {"date": key, "income": 0, "expenses": 0})
+                by_date[key]["income"] += float(e.total_amount_paid)
+            trend = sorted(by_date.values(), key=lambda x: x["date"])
+
+            # Build category breakdown by test_name
+            by_category = {}
+            for e in lab_entries:
+                cat = e.test_name or "Uncategorized"
+                by_category.setdefault(cat, {"category": cat, "amount": 0})
+                by_category[cat]["amount"] += float(e.total_amount_paid)
+            category_breakdown = list(by_category.values())
+
+            return jsonify({
+                "department": "Caredx",
+                "section": "lab",
+                "total_income": total_income,
+                "total_expenses": 0,
+                "total_paid_to_other_labs": total_paid,
+                "profit": total_income - total_paid,
+                "entry_count": len(lab_entries),
+                "trend": trend,
+                "category_breakdown": category_breakdown,
+            }), 200
+
+        # Expenses section (default)
         exp_query = CaredxExpense.query
         if start_date:
-            lab_query = lab_query.filter(CaredxLabEntry.entry_date >= start_date)
             exp_query = exp_query.filter(CaredxExpense.expense_date >= start_date)
         if end_date:
-            lab_query = lab_query.filter(CaredxLabEntry.entry_date <= end_date)
             exp_query = exp_query.filter(CaredxExpense.expense_date <= end_date)
+        if category:
+            exp_query = exp_query.filter(CaredxExpense.category == category)
 
-        lab_entries = lab_query.all()
         expenses = exp_query.all()
-
-        total_income = sum(float(e.total_amount_paid) for e in lab_entries)
-        total_paid_to_other_labs = sum(float(e.paid_to_other_labs or 0) for e in lab_entries)
         total_expenses = sum(float(e.amount) for e in expenses)
-        profit = total_income - (total_expenses + total_paid_to_other_labs)
 
         by_date = {}
-        for e in lab_entries:
-            key = e.entry_date.isoformat()
-            by_date.setdefault(key, {"date": key, "income": 0, "expenses": 0})
-            by_date[key]["income"] += float(e.total_amount_paid)
         for e in expenses:
             key = e.expense_date.isoformat()
-            by_date.setdefault(key, {"date": key, "income": 0, "expenses": 0})
+            by_date.setdefault(key, {"date": key, "expenses": 0})
             by_date[key]["expenses"] += float(e.amount)
         trend = sorted(by_date.values(), key=lambda x: x["date"])
 
@@ -359,22 +411,28 @@ def department_summary(department):
 
         return jsonify({
             "department": "Caredx",
-            "total_income": total_income,
+            "section": "expenses",
+            "total_income": 0,
             "total_expenses": total_expenses,
-            "total_paid_to_other_labs": total_paid_to_other_labs,
-            "profit": profit,
-            "entry_count": len(lab_entries) + len(expenses),
+            "total_paid_to_other_labs": 0,
+            "profit": -total_expenses,
+            "entry_count": len(expenses),
             "trend": trend,
             "category_breakdown": list(by_category.values()),
         }), 200
 
+    # Standard departments
     query = FinanceEntry.query.filter_by(department=department)
     if start_date:
         query = query.filter(FinanceEntry.entry_date >= start_date)
     if end_date:
         query = query.filter(FinanceEntry.entry_date <= end_date)
-    entries = query.all()
+    if revenue_type:
+        query = query.filter(FinanceEntry.revenue_type == revenue_type)
+    if category:
+        query = query.filter(FinanceEntry.category == category)
 
+    entries = query.all()
     total_income = sum(float(e.amount) for e in entries if e.entry_type == "Income")
     total_expenses = sum(float(e.amount) for e in entries if e.entry_type == "Expenses")
 
