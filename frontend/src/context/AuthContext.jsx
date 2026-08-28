@@ -5,6 +5,7 @@ const AuthContext = createContext(null);
 
 export const ROLE_ROUTES = {
   SuperAdmin: "/dashboard/admin",
+  admin: "/dashboard/admin", // Mapped for safety
   IT: "/dashboard/it",
   "IT Sales": "/dashboard/itsales",
   PCM: "/dashboard/pcm",
@@ -22,10 +23,20 @@ export function AuthProvider({ children }) {
   });
   const [loading, setLoading] = useState(false);
 
-  const login = useCallback(async (email, password) => {
+  const login = useCallback(async (email, password, otpData = null) => {
     setLoading(true);
     try {
-      const res = await api.post("/auth/login", { email, password });
+      let res;
+      if (otpData) {
+        res = await api.post("/auth/verify-otp", otpData);
+      } else {
+        res = await api.post("/auth/login", { email, password });
+      }
+
+      if (res.data.requires_2fa) {
+        return { success: true, requires_2fa: true, temp_token: res.data.temp_token };
+      }
+
       const { access_token, user: userData } = res.data;
       localStorage.setItem("token", access_token);
       localStorage.setItem("user", JSON.stringify(userData));

@@ -10,7 +10,31 @@ const emptyForm = () => ({
   category: "",
   amount: "",
   remarks: "",
+  employee_name: "",
+  purpose: "",
+  vehicle_type: "",
 });
+
+// New category list (including Pay Role Salaries)
+const CATEGORIES = [
+  "Payroll Salaries",
+  "Travel & Entertainment",
+  "Marketing Expenses",
+  "Assets & Infra Cost",
+  "General Operations",
+  "Innovation",
+  "Miscellaneous Categories",
+  "Service Revenue",
+  "Supplies & Equipments",   // renamed
+  "Legal Governance",
+  "Reagents and Laboratory Consumables",
+  "Specialized Clinical Labor",
+  "Logistics, Couriers, and Specimen Collection",
+  "Equipment Maintenance, Leases, and Automation",
+  "Waste Management, Compliance, and Safety",
+  "Billing, Revenue Cycle, and Administration",
+  "Other"
+];
 
 export default function CaredxExpenseForm({ open, onClose, onSaved, editingExpense }) {
   const [form, setForm] = useState(emptyForm());
@@ -24,6 +48,9 @@ export default function CaredxExpenseForm({ open, onClose, onSaved, editingExpen
         category: editingExpense.category || "",
         amount: editingExpense.amount ?? "",
         remarks: editingExpense.remarks || "",
+        employee_name: editingExpense.employee_name || "",
+        purpose: editingExpense.purpose || "",
+        vehicle_type: editingExpense.vehicle_type || "",
       });
     } else {
       setForm(emptyForm());
@@ -32,18 +59,36 @@ export default function CaredxExpenseForm({ open, onClose, onSaved, editingExpen
 
   if (!open) return null;
 
+  const isSalaryCategory = form.category === "Payroll Salaries";
+
   const handleChange = (e) => {
     setForm({ ...form, [e.target.name]: e.target.value });
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!form.category.trim()) {
-      toast.error("Please enter an expense category.");
+
+    // Prevent salary category submission
+    if (isSalaryCategory) {
+      toast.error("Salaries must be entered by Corporate Management only.");
       return;
     }
+
+    // Validate category
+    if (!form.category.trim()) {
+      toast.error("Please select an expense category.");
+      return;
+    }
+
+    // Validate amount
     if (!form.amount || Number(form.amount) <= 0) {
       toast.error("Please enter a valid amount.");
+      return;
+    }
+
+    // Remarks is mandatory for all editable categories
+    if (!form.remarks.trim()) {
+      toast.error("Remarks are required.");
       return;
     }
 
@@ -77,6 +122,7 @@ export default function CaredxExpenseForm({ open, onClose, onSaved, editingExpen
         </div>
 
         <form onSubmit={handleSubmit} className="modal-body">
+          {/* Date & Amount */}
           <div className="form-row">
             <div className="form-group">
               <label className="form-label">Date</label>
@@ -88,50 +134,92 @@ export default function CaredxExpenseForm({ open, onClose, onSaved, editingExpen
             </div>
           </div>
 
+          {/* Category */}
           <div className="form-group">
             <label className="form-label">Expenses Category</label>
-            <input
+            <select
               name="category"
               value={form.category}
               onChange={handleChange}
-              placeholder="e.g. Lab Chemicals, Syringe Box, etc."
               className="form-control"
-              list="expense-category-suggestions"
-            />
-            <datalist id="expense-category-suggestions">
-              <option value="Lab Chemicals" />
-              <option value="Lab Equipment" />
-              <option value="Syringe Box" />
-              <option value="Sample Bottles" />
-              <option value="Pamphlets Distribution" />
-              <option value="Salaries" />
-              <option value="Rent" />
-              <option value="Utilities" />
-              <option value="Maintenance" />
-              <option value="Office Supplies" />
-              <option value="Travel" />
-              <option value="Training" />
-              <option value="Insurance" />
-              <option value="Licensing" />
-              <option value="Other" />
-            </datalist>
+            >
+              <option value="">Select a category</option>
+              {CATEGORIES.map(cat => (
+                <option key={cat} value={cat}>{cat}</option>
+              ))}
+            </select>
           </div>
 
-          <div className="form-group">
-            <label className="form-label">Remarks</label>
-            <textarea
-              name="remarks"
-              value={form.remarks}
-              onChange={handleChange}
-              rows={3}
-              placeholder="Optional notes about this expense"
-              className="form-control"
-            />
-          </div>
+          {/* Salary Category Message */}
+          {isSalaryCategory && (
+            <div className="alert alert-info" style={{ background: "#f0f0ff", padding: "12px", borderRadius: "8px", marginBottom: "12px" }}>
+              <strong>⚠️ Salaries must be entered by Corporate Management only.</strong>
+              <p style={{ marginTop: "4px", fontSize: "0.9rem" }}>
+                Please use the Corporate Management dashboard to add salary records for CareDx employees.
+              </p>
+            </div>
+          )}
+
+          {/* Editable fields – hidden for salary category */}
+          {!isSalaryCategory && (
+            <>
+              {/* Employee/Person Name (generic) */}
+              <div className="form-group">
+                <label className="form-label">Name / Item</label>
+                <input
+                  name="employee_name"
+                  value={form.employee_name}
+                  onChange={handleChange}
+                  placeholder="e.g. Employee name, item name, vendor"
+                  className="form-control"
+                />
+              </div>
+
+              {/* Purpose */}
+              <div className="form-group">
+                <label className="form-label">Purpose</label>
+                <input
+                  name="purpose"
+                  value={form.purpose}
+                  onChange={handleChange}
+                  placeholder="Brief purpose of this expense"
+                  className="form-control"
+                />
+              </div>
+
+              {/* Vehicle Type – shown only for Travel & Entertainment */}
+              {form.category === "Travel & Entertainment" && (
+                <div className="form-group">
+                  <label className="form-label">Transport / Travel Type</label>
+                  <input
+                    name="vehicle_type"
+                    value={form.vehicle_type}
+                    onChange={handleChange}
+                    placeholder="e.g. Car, Bike, Cab, Bus"
+                    className="form-control"
+                  />
+                </div>
+              )}
+
+              {/* Remarks – mandatory */}
+              <div className="form-group">
+                <label className="form-label">Remarks <span style={{ color: "red" }}>*</span></label>
+                <textarea
+                  name="remarks"
+                  value={form.remarks}
+                  onChange={handleChange}
+                  rows={3}
+                  placeholder="Detailed remarks (required)"
+                  className="form-control"
+                  required
+                />
+              </div>
+            </>
+          )}
 
           <div className="modal-footer">
-            <button type="button" onClick={onClose} className="btn btn-secondary">Cancel</button>
-            <button type="submit" disabled={saving} className="btn btn-primary">
+            <button type="button" onClick={onClose} className="btn btn-secondary" disabled={saving}>Cancel</button>
+            <button type="submit" disabled={saving || isSalaryCategory} className="btn btn-primary">
               {saving ? "Saving..." : editingExpense ? "Update Expense" : "Save Expense"}
             </button>
           </div>

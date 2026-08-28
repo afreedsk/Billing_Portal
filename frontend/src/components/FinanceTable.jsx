@@ -11,23 +11,29 @@ const formatCurrency = (value) => {
   }).format(number);
 };
 
+// Compute the API origin (without trailing slash and without /api)
 const apiOrigin = (api.defaults.baseURL || "")
   .replace(/\/api\/?$/, "")
   .replace(/\/$/, "");
 
+// *** CRITICAL FIX: Append the JWT token to the invoice URL ***
 const invoiceHref = (entry) => {
   if (!entry?.invoice_url) return null;
+
+  const token = localStorage.getItem("token");
+  const tokenParam = token ? `?token=${encodeURIComponent(token)}` : "";
+
   if (entry.invoice_url.startsWith("http://") || entry.invoice_url.startsWith("https://")) {
-    return entry.invoice_url;
+    return `${entry.invoice_url}${entry.invoice_url.includes('?') ? '&' : '?'}token=${encodeURIComponent(token)}`;
   }
-  return `${apiOrigin}${entry.invoice_url}`;
+  return `${apiOrigin}${entry.invoice_url}${tokenParam}`;
 };
 
 export default function FinanceTable({
   entries = [],
   onEdit,
   onDelete,
-  onView,   // NEW
+  onView,
 }) {
   if (!entries || entries.length === 0) {
     return (
@@ -127,20 +133,24 @@ export default function FinanceTable({
                   </td>
                 )}
                 <td>
-                  <div className="actions-cell">
-                    {onView && (
-                      <button type="button" onClick={() => onView(entry)} className="btn-icon" title="View">
-                        <Eye size={15} />
-                      </button>
-                    )}
-                    <button type="button" onClick={() => onEdit?.(entry)} className="btn-icon" title="Edit">
-                      <Pencil size={15} />
-                    </button>
-                    <button type="button" onClick={() => onDelete?.(entry)} className="btn-icon btn-icon--danger" title="Delete">
-                      <Trash2 size={15} />
-                    </button>
-                  </div>
-                </td>
+  <div className="actions-cell">
+    {onView && (
+      <button type="button" onClick={() => onView(entry)} className="btn-icon" title="View">
+        <Eye size={15} />
+      </button>
+    )}
+    {onEdit && (
+      <button type="button" onClick={() => onEdit(entry)} className="btn-icon" title="Edit">
+        <Pencil size={15} />
+      </button>
+    )}
+    {onDelete && (
+      <button type="button" onClick={() => onDelete(entry)} className="btn-icon btn-icon--danger" title="Delete">
+        <Trash2 size={15} />
+      </button>
+    )}
+  </div>
+</td>
               </tr>
             );
           })}

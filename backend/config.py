@@ -23,4 +23,14 @@ class Config:
         hours=int(os.getenv("JWT_ACCESS_TOKEN_EXPIRES_HOURS", 12))
     )
 
+    # Email Settings (Gmail)
+    MAIL_SERVER = os.getenv("MAIL_SERVER", "smtp.gmail.com")
+    MAIL_PORT = int(os.getenv("MAIL_PORT", 465))
+    MAIL_USE_SSL = os.getenv("MAIL_USE_SSL", "True").lower() == "true"
+    MAIL_USERNAME = os.getenv("MAIL_USERNAME")
+    MAIL_PASSWORD = os.getenv("MAIL_PASSWORD")
+
     FRONTEND_ORIGIN = os.getenv("FRONTEND_ORIGIN", "http://localhost:5173")
+
+    # *** ADD THIS LINE: Tells Flask-JWT-Extended to look for the 'token' query parameter ***
+    JWT_QUERY_STRING_NAME = "token"

@@ -9,14 +9,6 @@ from utils import role_required
 DEPARTMENT = "Adminstrationfunctionalunit"
 CONFIG = DEPARTMENT_CONFIG[DEPARTMENT]
 
-# Sub-category mapping for this department
-SUB_CATEGORIES = {
-    "Rent and Utilities": ["Office rent", "Power and electricity", "Water", "AC equipment"],
-    "Office Maintenance and Supplies": ["Stationary", "Physical assets maintenance", "General maintenance"],
-    "Staff and Travel": ["Administration salaries", "Travel", "Food orders", "Corporate dine outs", "Visitors"],
-    "Professional and Legal Services": ["Accounting and finance", "Registration"],
-}
-
 adminfunctionalunit_bp = Blueprint(
     "adminfunctionalunit",
     __name__,
@@ -55,7 +47,6 @@ def options():
         "show_gst_number": CONFIG["show_gst_number"],
         "show_items": CONFIG["show_items"],
         "show_invoice": CONFIG["show_invoice"],
-        "sub_categories": SUB_CATEGORIES,
     }), 200
 
 @adminfunctionalunit_bp.route("/entries", methods=["POST"])
@@ -64,11 +55,16 @@ def create_entry():
     data = request.get_json(silent=True) or {}
     entry_type = data.get("entry_type")
     category = data.get("category")
-    sub_category = data.get("sub_category")
     amount = data.get("amount")
     remarks = data.get("remarks", "")
-    generated_by = data.get("generated_by", "").strip() or None
+    
+    # SAFE: handle None values before calling .strip()
+    generated_by = (data.get("generated_by") or "").strip() or None
     entry_date = _parse_date(data.get("entry_date"), default=date.today())
+
+    # New fields for Office Admin categories – safely handle None
+    employee_name = (data.get("employee_name") or "").strip() or None
+    vehicle_type = (data.get("vehicle_type") or "").strip() or None
 
     errors = []
     if entry_type not in ENTRY_TYPES:
@@ -77,22 +73,13 @@ def create_entry():
     if category not in allowed_categories:
         errors.append(f"category must be one of: {', '.join(allowed_categories)}.")
 
-    if category in SUB_CATEGORIES:
-        allowed_sub = SUB_CATEGORIES[category]
-        if not sub_category:
-            errors.append(f"sub_category is required for category '{category}'.")
-        elif sub_category not in allowed_sub:
-            errors.append(f"sub_category must be one of: {', '.join(allowed_sub)}.")
-    else:
-        if sub_category:
-            errors.append(f"sub_category is not allowed for category '{category}'.")
-
     try:
         amount = float(amount)
         if amount <= 0:
             errors.append("amount must be greater than 0.")
     except (TypeError, ValueError):
         errors.append("amount must be a number.")
+
     if errors:
         return jsonify({"message": "Validation failed.", "errors": errors}), 400
 
@@ -100,12 +87,13 @@ def create_entry():
         department=DEPARTMENT,
         entry_type=entry_type,
         category=category,
-        sub_category=sub_category if sub_category else None,
         generated_by=generated_by,
         amount=amount,
         remarks=remarks,
         entry_date=entry_date,
         created_by_id=get_jwt_identity(),
+        employee_name=employee_name,
+        vehicle_type=vehicle_type,
     )
     db.session.add(entry)
     db.session.commit()
@@ -122,9 +110,6 @@ def list_entries():
     category = request.args.get("category")
     if category:
         query = query.filter(FinanceEntry.category == category)
-    sub_category = request.args.get("sub_category")
-    if sub_category:
-        query = query.filter(FinanceEntry.sub_category == sub_category)
     search = request.args.get("search")
     if search:
         like = f"%{search}%"
@@ -133,7 +118,7 @@ def list_entries():
                 FinanceEntry.remarks.ilike(like),
                 FinanceEntry.generated_by.ilike(like),
                 FinanceEntry.category.ilike(like),
-                FinanceEntry.sub_category.ilike(like),
+                FinanceEntry.employee_name.ilike(like),
             )
         )
     query = query.order_by(FinanceEntry.entry_date.desc(), FinanceEntry.id.desc())
@@ -146,22 +131,13 @@ def update_entry(entry_id):
     if not entry:
         return jsonify({"message": "Entry not found."}), 404
     data = request.get_json(silent=True) or {}
+
     if "entry_type" in data and data["entry_type"] in ENTRY_TYPES:
         entry.entry_type = data["entry_type"]
     if "category" in data:
         allowed = CONFIG["categories"].get(entry.entry_type, [])
         if data["category"] in allowed:
             entry.category = data["category"]
-    if "sub_category" in data:
-        cat = data.get("category", entry.category)
-        if cat in SUB_CATEGORIES:
-            allowed_sub = SUB_CATEGORIES[cat]
-            if data["sub_category"] in allowed_sub:
-                entry.sub_category = data["sub_category"]
-            else:
-                return jsonify({"message": "Invalid sub_category for this category."}), 400
-        else:
-            entry.sub_category = None
     if "amount" in data:
         try:
             amount = float(data["amount"])
@@ -170,13 +146,19 @@ def update_entry(entry_id):
         except (TypeError, ValueError):
             pass
     if "generated_by" in data:
-        entry.generated_by = data["generated_by"].strip() or None
+        # SAFE: handle None
+        entry.generated_by = (data.get("generated_by") or "").strip() or None
     if "remarks" in data:
         entry.remarks = data["remarks"]
     if "entry_date" in data:
         parsed = _parse_date(data["entry_date"])
         if parsed:
             entry.entry_date = parsed
+    if "employee_name" in data:
+        entry.employee_name = (data.get("employee_name") or "").strip() or None
+    if "vehicle_type" in data:
+        entry.vehicle_type = (data.get("vehicle_type") or "").strip() or None
+
     db.session.commit()
     return jsonify({"message": "Entry updated.", "entry": entry.to_dict()}), 200
 

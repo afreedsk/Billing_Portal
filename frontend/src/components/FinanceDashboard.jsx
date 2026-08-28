@@ -14,18 +14,7 @@ const firstOfMonth = () => {
 };
 const todayStr = () => new Date().toISOString().split("T")[0];
 
-/**
- * Reusable finance dashboard for departments that only need the standard
- * Income/Expenses module (IT, PCM, MedTech). Caredx has its own dedicated
- * page (CaredxDashboard.jsx) because it also has the Lab Data Entry module.
- * Hits that department's own dedicated route file, e.g. /api/it/..., 
- * /api/pcm/..., /api/medtech/... (see backend/routes/it.py, pcm.py, medtech.py).
- *
- * PCM additionally supports Excel import (POST /pcm/import, multipart file
- * upload) and Excel export (GET /pcm/export, downloads a formatted .xlsx).
- */
 export default function FinanceDashboard({ department, title, roleColor }) {
-  // Remove spaces from department name to match URL slug (e.g., "IT Sales" -> "itsales")
   const apiBase = department.toLowerCase().replace(/\s/g, '');
   const supportsExcelImportExport = department === "PCM";
 
@@ -63,8 +52,15 @@ export default function FinanceDashboard({ department, title, roleColor }) {
         api.get(`/${apiBase}/entries`, { params }),
         api.get(`/${apiBase}/summary`, { params: { start_date: startDate, end_date: endDate } }),
       ]);
-      setEntries(entriesRes.data.entries);
+      
+      // *** CRITICAL FIX APPLIED HERE ***
+      const entriesData = Array.isArray(entriesRes.data) 
+        ? entriesRes.data 
+        : (entriesRes.data.entries || []);
+      
+      setEntries(entriesData);
       setSummary(summaryRes.data);
+
     } catch (err) {
       toast.error("Failed to load finance data.");
     } finally {

@@ -25,6 +25,9 @@ def _parse_date(value, default=None):
         return default
 
 
+# ----------------------------------------------------------------------
+# User management (unchanged)
+# ----------------------------------------------------------------------
 @superadmin_bp.route("/roles", methods=["GET"])
 @role_required("SuperAdmin")
 def roles():
@@ -124,20 +127,12 @@ def team_stats():
     }), 200
 
 
+# ----------------------------------------------------------------------
+# Overview (unchanged)
+# ----------------------------------------------------------------------
 @superadmin_bp.route("/overview", methods=["GET"])
 @role_required("SuperAdmin")
 def overview():
-    """
-    High level snapshot across the platform for the SuperAdmin dashboard,
-    filterable by date range.
-
-    Optional query params:
-        start_date (YYYY-MM-DD) – filter entries on or after this date
-        end_date   (YYYY-MM-DD) – filter entries on or before this date
-
-    Returns total/active members, platform-wide income/expenses/profit,
-    and a breakdown per department.
-    """
     start_date = _parse_date(request.args.get("start_date"))
     end_date = _parse_date(request.args.get("end_date"))
 
@@ -165,12 +160,27 @@ def overview():
         return float(query.scalar())
 
     def caredx_expenses(start_date, end_date):
-        query = db.session.query(func.coalesce(func.sum(CaredxExpense.amount), 0))
+        exp_query = db.session.query(func.coalesce(func.sum(CaredxExpense.amount), 0))
         if start_date:
-            query = query.filter(CaredxExpense.expense_date >= start_date)
+            exp_query = exp_query.filter(CaredxExpense.expense_date >= start_date)
         if end_date:
-            query = query.filter(CaredxExpense.expense_date <= end_date)
-        return float(query.scalar())
+            exp_query = exp_query.filter(CaredxExpense.expense_date <= end_date)
+        exp_total = float(exp_query.scalar())
+
+        salary_query = db.session.query(func.coalesce(func.sum(FinanceEntry.amount), 0)).filter(
+            FinanceEntry.category == "Payroll Salaries",
+            or_(
+                FinanceEntry.department == "Caredx",
+                (FinanceEntry.department == "Corporate") & (FinanceEntry.exec_department == "Caredx")
+            )
+        )
+        if start_date:
+            salary_query = salary_query.filter(FinanceEntry.entry_date >= start_date)
+        if end_date:
+            salary_query = salary_query.filter(FinanceEntry.entry_date <= end_date)
+        salary_total = float(salary_query.scalar())
+
+        return exp_total + salary_total
 
     by_department = []
     for dept in VALID_DEPARTMENTS:
@@ -200,8 +210,10 @@ def overview():
     }), 200
 
 
+# ----------------------------------------------------------------------
+# Helpers for filtering finance entries (unchanged)
+# ----------------------------------------------------------------------
 def _apply_finance_filters(query, args):
-    """Apply common finance entry filters (date, type, category, search, revenue_type, sub_category)."""
     start_date = _parse_date(args.get("start_date"))
     end_date = _parse_date(args.get("end_date"))
     if start_date:
@@ -242,17 +254,17 @@ def _apply_finance_filters(query, args):
     return query
 
 
+# ----------------------------------------------------------------------
+# Department options (unchanged)
+# ----------------------------------------------------------------------
 @superadmin_bp.route("/departments/<department>/options", methods=["GET"])
 @role_required("SuperAdmin")
 def department_options(department):
     if department not in VALID_DEPARTMENTS:
         return jsonify({"message": "Unknown department."}), 404
 
-    if department == "Caredx":
-        return jsonify({"department": "Caredx", "uses_lab_entries": True}), 200
-
     config = DEPARTMENT_CONFIG[department]
-    return jsonify({
+    response = {
         "department": department,
         "entry_types": ENTRY_TYPES,
         "categories": config["categories"],
@@ -265,15 +277,21 @@ def department_options(department):
         "gst_required_categories": config["gst_required_categories"],
         "show_items": config["show_items"],
         "show_invoice": config["show_invoice"],
-    }), 200
+    }
+    if department == "Caredx":
+        response["uses_lab_entries"] = True
+
+    return jsonify(response), 200
 
 
-def _caredx_entries():
-    """Return lab entries and expenses with optional section and category filters."""
+# ----------------------------------------------------------------------
+# Caredx helper (unchanged)
+# ----------------------------------------------------------------------
+def _get_caredx_entries_and_summary(for_summary=False):
     start_date = _parse_date(request.args.get("start_date"))
     end_date = _parse_date(request.args.get("end_date"))
     search = request.args.get("search")
-    section = request.args.get("section")   # 'lab' or 'expenses'
+    section = request.args.get("section")
     category = request.args.get("category")
 
     lab_entries = []
@@ -295,9 +313,13 @@ def _caredx_entries():
                     CaredxLabEntry.referral_by.ilike(like),
                 )
             )
-        lab_entries = lab_query.order_by(CaredxLabEntry.entry_date.desc(), CaredxLabEntry.id.desc()).all()
+        lab_entries = lab_query.order_by(
+            CaredxLabEntry.entry_date.desc(),
+            CaredxLabEntry.id.desc()
+        ).all()
 
     if section is None or section == "expenses":
+        # 1. Regular Caredx expenses
         exp_query = CaredxExpense.query
         if start_date:
             exp_query = exp_query.filter(CaredxExpense.expense_date >= start_date)
@@ -310,54 +332,59 @@ def _caredx_entries():
             )
         if category:
             exp_query = exp_query.filter(CaredxExpense.category == category)
-        expenses = exp_query.order_by(CaredxExpense.expense_date.desc(), CaredxExpense.id.desc()).all()
+        caredx_expenses = exp_query.order_by(
+            CaredxExpense.expense_date.desc(),
+            CaredxExpense.id.desc()
+        ).all()
 
-    return jsonify({
-        "lab_entries": [e.to_dict() for e in lab_entries],
-        "expenses": [e.to_dict() for e in expenses],
-    }), 200
-
-
-@superadmin_bp.route("/departments/<department>/entries", methods=["GET"])
-@role_required("SuperAdmin")
-def department_entries(department):
-    if department not in VALID_DEPARTMENTS:
-        return jsonify({"message": "Unknown department."}), 404
-
-    if department == "Caredx":
-        return _caredx_entries()
-
-    query = FinanceEntry.query.filter_by(department=department)
-    query = _apply_finance_filters(query, request.args)
-    query = query.order_by(FinanceEntry.entry_date.desc(), FinanceEntry.id.desc())
-    return jsonify({"entries": [e.to_dict() for e in query.all()]}), 200
-
-
-@superadmin_bp.route("/departments/<department>/summary", methods=["GET"])
-@role_required("SuperAdmin")
-def department_summary(department):
-    if department not in VALID_DEPARTMENTS:
-        return jsonify({"message": "Unknown department."}), 404
-
-    start_date = _parse_date(request.args.get("start_date"))
-    end_date = _parse_date(request.args.get("end_date"))
-    revenue_type = request.args.get("revenue_type")
-    category = request.args.get("category")
-
-    if department == "Caredx":
-        section = request.args.get("section")
-
-        if section == "lab":
-            lab_query = CaredxLabEntry.query
+        # 2. Salary entries from FinanceEntry – only include if category filter is None or "Payroll Salaries"
+        salary_items = []
+        if category is None or category == "Payroll Salaries":
+            salary_query = FinanceEntry.query.filter(
+                FinanceEntry.category == "Payroll Salaries",
+                or_(
+                    FinanceEntry.department == "Caredx",
+                    (FinanceEntry.department == "Corporate") & (FinanceEntry.exec_department == "Caredx")
+                )
+            )
             if start_date:
-                lab_query = lab_query.filter(CaredxLabEntry.entry_date >= start_date)
+                salary_query = salary_query.filter(FinanceEntry.entry_date >= start_date)
             if end_date:
-                lab_query = lab_query.filter(CaredxLabEntry.entry_date <= end_date)
-            lab_entries = lab_query.all()
+                salary_query = salary_query.filter(FinanceEntry.entry_date <= end_date)
+            if search:
+                like = f"%{search}%"
+                salary_query = salary_query.filter(
+                    or_(FinanceEntry.employee_name.ilike(like), FinanceEntry.remarks.ilike(like))
+                )
+            salary_entries = salary_query.order_by(
+                FinanceEntry.entry_date.desc(),
+                FinanceEntry.id.desc()
+            ).all()
+
+            for s in salary_entries:
+                salary_items.append({
+                    "id": -s.id,
+                    "expense_date": s.entry_date.isoformat(),
+                    "category": "Payroll Salaries",
+                    "amount": float(s.amount),
+                    "remarks": f"Salary for {s.employee_name} ({s.exec_department}) - {s.remarks or ''}",
+                    "employee_name": s.employee_name,
+                    "purpose": s.remarks,
+                    "vehicle_type": s.vehicle_type,
+                    "_isSalary": True,
+                })
+
+        # 3. Merge and sort
+        all_expenses = [e.to_dict() for e in caredx_expenses] + salary_items
+        all_expenses.sort(key=lambda x: x["expense_date"], reverse=True)
+        expenses = all_expenses
+
+    # ---------- Summary response ----------
+    if for_summary:
+        if section == "lab":
             total_income = sum(float(e.total_amount_paid) for e in lab_entries)
             total_paid = sum(float(e.paid_to_other_labs or 0) for e in lab_entries)
 
-            # Build trend (income per date)
             by_date = {}
             for e in lab_entries:
                 key = e.entry_date.isoformat()
@@ -365,7 +392,6 @@ def department_summary(department):
                 by_date[key]["income"] += float(e.total_amount_paid)
             trend = sorted(by_date.values(), key=lambda x: x["date"])
 
-            # Build category breakdown by test_name
             by_category = {}
             for e in lab_entries:
                 cat = e.test_name or "Uncategorized"
@@ -373,7 +399,7 @@ def department_summary(department):
                 by_category[cat]["amount"] += float(e.total_amount_paid)
             category_breakdown = list(by_category.values())
 
-            return jsonify({
+            return {
                 "department": "Caredx",
                 "section": "lab",
                 "total_income": total_income,
@@ -383,33 +409,24 @@ def department_summary(department):
                 "entry_count": len(lab_entries),
                 "trend": trend,
                 "category_breakdown": category_breakdown,
-            }), 200
+            }
 
-        # Expenses section (default)
-        exp_query = CaredxExpense.query
-        if start_date:
-            exp_query = exp_query.filter(CaredxExpense.expense_date >= start_date)
-        if end_date:
-            exp_query = exp_query.filter(CaredxExpense.expense_date <= end_date)
-        if category:
-            exp_query = exp_query.filter(CaredxExpense.category == category)
-
-        expenses = exp_query.all()
-        total_expenses = sum(float(e.amount) for e in expenses)
-
+        # section == "expenses" (or None, but we treat as expenses)
+        total_expenses = sum(float(e["amount"]) for e in expenses)
         by_date = {}
         for e in expenses:
-            key = e.expense_date.isoformat()
+            key = e["expense_date"]
             by_date.setdefault(key, {"date": key, "expenses": 0})
-            by_date[key]["expenses"] += float(e.amount)
+            by_date[key]["expenses"] += float(e["amount"])
         trend = sorted(by_date.values(), key=lambda x: x["date"])
 
         by_category = {}
         for e in expenses:
-            by_category.setdefault(e.category, {"category": e.category, "amount": 0})
-            by_category[e.category]["amount"] += float(e.amount)
+            cat = e["category"] or "Uncategorized"
+            by_category.setdefault(cat, {"category": cat, "amount": 0})
+            by_category[cat]["amount"] += float(e["amount"])
 
-        return jsonify({
+        return {
             "department": "Caredx",
             "section": "expenses",
             "total_income": 0,
@@ -419,20 +436,95 @@ def department_summary(department):
             "entry_count": len(expenses),
             "trend": trend,
             "category_breakdown": list(by_category.values()),
-        }), 200
+        }
 
-    # Standard departments
-    query = FinanceEntry.query.filter_by(department=department)
+    # ---------- Non-summary (list) response ----------
+    return {
+        "lab_entries": [e.to_dict() for e in lab_entries],
+        "expenses": expenses
+    }
+
+
+# ----------------------------------------------------------------------
+# Department entries and summary – FIXED: include salary entries from Corporate
+# ----------------------------------------------------------------------
+@superadmin_bp.route("/departments/<string:dept>/entries", methods=["GET"])
+@role_required("SuperAdmin")
+def dept_entries(dept):
+    if dept not in VALID_DEPARTMENTS:
+        return jsonify({"message": "Unknown department."}), 404
+
+    if dept == "Caredx":
+        return jsonify(_get_caredx_entries_and_summary(for_summary=False)), 200
+
+    # ✅ FIXED: start with FinanceEntry.query (no base filter) and use or_ to include both native and salary entries
+    if dept == "Corporate":
+        # For Corporate, show all entries except salary entries that belong to other departments
+        query = FinanceEntry.query.filter(
+            or_(
+                FinanceEntry.category != "Payroll Salaries",
+                (FinanceEntry.category == "Payroll Salaries") & (FinanceEntry.exec_department == "Corporate")
+            )
+        )
+    else:
+        salary_category = DEPARTMENT_CONFIG.get("Corporate", {}).get("is_salary_category", "Payroll Salaries")
+        query = FinanceEntry.query.filter(
+            or_(
+                FinanceEntry.department == dept,
+                (FinanceEntry.department == "Corporate") & (FinanceEntry.exec_department == dept) & (FinanceEntry.category == salary_category)
+            )
+        )
+
+    # Apply common filters (date, entry_type, category, search, etc.)
+    query = _apply_finance_filters(query, request.args)
+    query = query.order_by(FinanceEntry.entry_date.desc(), FinanceEntry.id.desc())
+    entries = query.all()
+
+    print(f"SuperAdmin {dept} entries count: {len(entries)}")
+    return jsonify({"entries": [e.to_dict() for e in entries]}), 200
+
+
+@superadmin_bp.route("/departments/<string:dept>/summary", methods=["GET"])
+@role_required("SuperAdmin")
+def dept_summary(dept):
+    if dept not in VALID_DEPARTMENTS:
+        return jsonify({"message": "Unknown department."}), 404
+
+    if dept == "Caredx":
+        return jsonify(_get_caredx_entries_and_summary(for_summary=True)), 200
+
+    # ✅ FIXED: same as above – start with FinanceEntry.query and use or_
+    if dept == "Corporate":
+        query = FinanceEntry.query.filter(
+            or_(
+                FinanceEntry.category != "Payroll Salaries",
+                (FinanceEntry.category == "Payroll Salaries") & (FinanceEntry.exec_department == "Corporate")
+            )
+        )
+    else:
+        salary_category = DEPARTMENT_CONFIG.get("Corporate", {}).get("is_salary_category", "Payroll Salaries")
+        query = FinanceEntry.query.filter(
+            or_(
+                FinanceEntry.department == dept,
+                (FinanceEntry.department == "Corporate") & (FinanceEntry.exec_department == dept) & (FinanceEntry.category == salary_category)
+            )
+        )
+
+    # Apply date filters
+    start_date = _parse_date(request.args.get("start_date"))
+    end_date = _parse_date(request.args.get("end_date"))
     if start_date:
         query = query.filter(FinanceEntry.entry_date >= start_date)
     if end_date:
         query = query.filter(FinanceEntry.entry_date <= end_date)
-    if revenue_type:
-        query = query.filter(FinanceEntry.revenue_type == revenue_type)
+
+    # Additional category filter if provided
+    category = request.args.get("category")
     if category:
         query = query.filter(FinanceEntry.category == category)
 
     entries = query.all()
+
     total_income = sum(float(e.amount) for e in entries if e.entry_type == "Income")
     total_expenses = sum(float(e.amount) for e in entries if e.entry_type == "Expenses")
 
@@ -449,7 +541,7 @@ def department_summary(department):
         by_category[e.category]["amount"] += float(e.amount)
 
     return jsonify({
-        "department": department,
+        "department": dept,
         "total_income": total_income,
         "total_expenses": total_expenses,
         "profit": total_income - total_expenses,
@@ -459,6 +551,9 @@ def department_summary(department):
     }), 200
 
 
+# ----------------------------------------------------------------------
+# Excel export and import (unchanged)
+# ----------------------------------------------------------------------
 @superadmin_bp.route("/departments/<department>/export", methods=["GET"])
 @role_required("SuperAdmin")
 def department_export(department):

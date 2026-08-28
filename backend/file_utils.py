@@ -40,4 +40,4 @@ def delete_invoice_file(relative_path):
         try:
             os.remove(full_path)
         except OSError:
-            pass    
+            pass

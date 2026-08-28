@@ -1,9 +1,10 @@
 """IT Sales department finance routes — Income/Expenses entries with categories.
-See DEPARTMENT_CONFIG['IT Sales'] in models.py.
+Now includes salary entries from Corporate Management.
 """
 from datetime import datetime, date
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import get_jwt_identity
+from sqlalchemy import or_
 
 from models import db, FinanceEntry, ENTRY_TYPES, DEPARTMENT_CONFIG
 from utils import role_required
@@ -64,13 +65,23 @@ def create_entry():
     revenue_type = data.get("revenue_type")
     client_name = (data.get("client_name") or "").strip() or None
     gst_number = (data.get("gst_number") or "").strip() or None
-    gst_tax_percent = data.get("gst_tax_percent")
+    gst_tax_percent_raw = data.get("gst_tax_percent")
     tax_invoice_number = data.get("tax_invoice_number") or None
     amount = data.get("amount")
-    remarks = data.get("remarks", "")
+    remarks = (data.get("remarks") or "").strip()
     entry_date = _parse_date(data.get("entry_date"), default=date.today())
 
+    # New fields for IT Sales categories
+    employee_name = (data.get("employee_name") or "").strip() or None
+    purpose = (data.get("purpose") or "").strip() or None
+    vehicle_type = (data.get("vehicle_type") or "").strip() or None
+
     errors = []
+
+    # Block salary category creation in IT Sales
+    if category == "Payroll Salaries":
+        errors.append("Salaries must be entered by Corporate Management only.")
+
     if entry_type not in ENTRY_TYPES:
         errors.append("entry_type must be Income or Expenses.")
 
@@ -78,8 +89,8 @@ def create_entry():
     if category not in allowed_categories:
         errors.append(f"category must be one of: {', '.join(allowed_categories)}.")
 
-    if not generated_by:
-        errors.append("generated_by (employee name) is required.")
+    if entry_type == "Income" and not generated_by:
+        errors.append("generated_by (employee name) is required for Income entries.")
 
     if CONFIG["show_revenue_type"] and revenue_type not in CONFIG["revenue_types"]:
         errors.append(f"revenue_type must be one of: {', '.join(CONFIG['revenue_types'])}.")
@@ -93,14 +104,28 @@ def create_entry():
             errors.append("amount must be greater than 0.")
     except (TypeError, ValueError):
         errors.append("amount must be a number.")
+        amount = 0
 
-    if CONFIG["show_gst_tax"] and gst_tax_percent:
+    # Handle GST tax percent – ensure it's None if empty
+    gst_tax_percent = None
+    gst_tax_amount = 0
+    base_amount = amount
+    total_amount = amount
+
+    if CONFIG["show_gst_tax"] and gst_tax_percent_raw is not None and str(gst_tax_percent_raw).strip():
         try:
-            gst_tax_percent = float(gst_tax_percent)
+            gst_tax_percent = float(gst_tax_percent_raw)
             if gst_tax_percent < 0 or gst_tax_percent > 100:
                 errors.append("GST tax percent must be between 0 and 100.")
+            else:
+                gst_tax_amount = round(amount * gst_tax_percent / 100, 2)
+                total_amount = amount + gst_tax_amount
         except ValueError:
             errors.append("GST tax percent must be a number.")
+
+    # Remarks mandatory for all IT Sales expense entries (except salary, which is blocked)
+    if entry_type == "Expenses" and category != "Payroll Salaries" and not remarks:
+        errors.append("Remarks are required.")
 
     invoice_path = invoice_original = invoice_mimetype = None
     invoice_file = request.files.get("invoice")
@@ -113,15 +138,6 @@ def create_entry():
     if errors:
         return jsonify({"message": "Validation failed.", "errors": errors}), 400
 
-    # Calculate GST if applicable
-    base_amount = amount
-    gst_tax_amount = 0
-    if CONFIG["show_gst_tax"] and gst_tax_percent:
-        gst_tax_amount = round(amount * gst_tax_percent / 100, 2)
-        total_amount = amount + gst_tax_amount
-    else:
-        total_amount = amount
-
     entry = FinanceEntry(
         department=DEPARTMENT,
         entry_type=entry_type,
@@ -132,8 +148,8 @@ def create_entry():
         gst_number=gst_number if CONFIG["show_gst_number"] else None,
         amount=total_amount,
         base_amount=base_amount,
-        gst_tax_percent=gst_tax_percent if CONFIG["show_gst_tax"] else None,
-        gst_tax_amount=gst_tax_amount if CONFIG["show_gst_tax"] else None,
+        gst_tax_percent=gst_tax_percent,  # Now either a float or None
+        gst_tax_amount=gst_tax_amount,
         tax_invoice_number=tax_invoice_number if CONFIG["show_tax_invoice_number"] else None,
         remarks=remarks,
         entry_date=entry_date,
@@ -141,6 +157,9 @@ def create_entry():
         invoice_original_name=invoice_original,
         invoice_mimetype=invoice_mimetype,
         created_by_id=get_jwt_identity(),
+        employee_name=employee_name,
+        purpose=purpose,
+        vehicle_type=vehicle_type,
     )
     db.session.add(entry)
     db.session.commit()
@@ -151,28 +170,49 @@ def create_entry():
 @itsales_bp.route("/entries", methods=["GET"])
 @role_required("IT Sales")
 def list_entries():
+    # 1. Native IT Sales entries
     query = FinanceEntry.query.filter_by(department=DEPARTMENT)
     query = _apply_date_filters(query)
 
+    # 2. Salary entries from Corporate with exec_department = IT Sales
+    salary_query = FinanceEntry.query.filter(
+        FinanceEntry.department == "Corporate",
+        FinanceEntry.exec_department == "IT Sales",
+        FinanceEntry.entry_type == "Expenses",
+        FinanceEntry.category == "Payroll Salaries"
+    )
+    start_date = _parse_date(request.args.get("start_date"))
+    end_date = _parse_date(request.args.get("end_date"))
+    if start_date:
+        salary_query = salary_query.filter(FinanceEntry.entry_date >= start_date)
+    if end_date:
+        salary_query = salary_query.filter(FinanceEntry.entry_date <= end_date)
+
+    # Combine both
+    combined_query = query.union(salary_query)
+
     entry_type = request.args.get("entry_type")
     if entry_type in ENTRY_TYPES:
-        query = query.filter(FinanceEntry.entry_type == entry_type)
+        combined_query = combined_query.filter(FinanceEntry.entry_type == entry_type)
 
     category = request.args.get("category")
     if category:
-        query = query.filter(FinanceEntry.category == category)
+        combined_query = combined_query.filter(FinanceEntry.category == category)
 
     search = request.args.get("search")
     if search:
         like = f"%{search}%"
-        query = query.filter(
-            (FinanceEntry.generated_by.ilike(like))
-            | (FinanceEntry.client_name.ilike(like))
-            | (FinanceEntry.remarks.ilike(like))
+        combined_query = combined_query.filter(
+            or_(
+                FinanceEntry.generated_by.ilike(like),
+                FinanceEntry.client_name.ilike(like),
+                FinanceEntry.remarks.ilike(like),
+                FinanceEntry.employee_name.ilike(like),
+            )
         )
 
-    query = query.order_by(FinanceEntry.entry_date.desc(), FinanceEntry.id.desc())
-    return jsonify({"entries": [e.to_dict() for e in query.all()]}), 200
+    combined_query = combined_query.order_by(FinanceEntry.entry_date.desc(), FinanceEntry.id.desc())
+    return jsonify({"entries": [e.to_dict() for e in combined_query.all()]}), 200
 
 
 @itsales_bp.route("/entries/<int:entry_id>", methods=["PUT"])
@@ -183,14 +223,20 @@ def update_entry(entry_id):
         return jsonify({"message": "Entry not found."}), 404
 
     data = request.form
+    new_type = data.get("entry_type", entry.entry_type)
+    allowed_categories = CONFIG["categories"].get(new_type, [])
+
     errors = []
+
+    # Block changing category to Payroll Salaries
+    new_category = data.get("category", entry.category)
+    if new_category == "Payroll Salaries" and entry.category != "Payroll Salaries":
+        errors.append("Salaries must be entered by Corporate Management only.")
 
     if "entry_type" in data and data["entry_type"] in ENTRY_TYPES:
         entry.entry_type = data["entry_type"]
-    if "category" in data:
-        allowed = CONFIG["categories"].get(entry.entry_type, [])
-        if data["category"] in allowed:
-            entry.category = data["category"]
+    if "category" in data and data["category"] in allowed_categories:
+        entry.category = data["category"]
     if "generated_by" in data and data["generated_by"].strip():
         entry.generated_by = data["generated_by"].strip()
     if "revenue_type" in data and data["revenue_type"] in CONFIG["revenue_types"]:
@@ -201,11 +247,15 @@ def update_entry(entry_id):
         entry.gst_number = (data["gst_number"] or "").strip() or None
     if "gst_tax_percent" in data:
         try:
-            gst = float(data["gst_tax_percent"])
-            if 0 <= gst <= 100:
-                entry.gst_tax_percent = gst
+            raw = data["gst_tax_percent"]
+            if raw is not None and str(raw).strip():
+                gst = float(raw)
+                if 0 <= gst <= 100:
+                    entry.gst_tax_percent = gst
+                else:
+                    errors.append("GST tax percent must be between 0 and 100.")
             else:
-                errors.append("GST tax percent must be between 0 and 100.")
+                entry.gst_tax_percent = None
         except ValueError:
             errors.append("GST tax percent must be a number.")
     if "tax_invoice_number" in data:
@@ -215,7 +265,6 @@ def update_entry(entry_id):
             amt = float(data["amount"])
             if amt > 0:
                 entry.amount = amt
-                # Recalculate GST if needed
                 if entry.gst_tax_percent:
                     entry.base_amount = amt / (1 + entry.gst_tax_percent / 100)
                     entry.gst_tax_amount = entry.amount - entry.base_amount
@@ -225,11 +274,19 @@ def update_entry(entry_id):
         except (TypeError, ValueError):
             pass
     if "remarks" in data:
-        entry.remarks = data["remarks"]
+        entry.remarks = (data["remarks"] or "").strip()
     if "entry_date" in data:
         parsed = _parse_date(data["entry_date"])
         if parsed:
             entry.entry_date = parsed
+
+    # New fields
+    if "employee_name" in data:
+        entry.employee_name = (data["employee_name"] or "").strip() or None
+    if "purpose" in data:
+        entry.purpose = (data["purpose"] or "").strip() or None
+    if "vehicle_type" in data:
+        entry.vehicle_type = (data["vehicle_type"] or "").strip() or None
 
     invoice_file = request.files.get("invoice")
     if CONFIG["show_invoice"] and invoice_file and invoice_file.filename:
@@ -247,6 +304,10 @@ def update_entry(entry_id):
         entry.invoice_filename = None
         entry.invoice_original_name = None
         entry.invoice_mimetype = None
+
+    # Remarks mandatory for IT Sales expenses (except salary)
+    if entry.entry_type == "Expenses" and entry.category != "Payroll Salaries" and not entry.remarks:
+        errors.append("Remarks are required.")
 
     if errors:
         return jsonify({"message": "Validation failed.", "errors": errors}), 400
@@ -270,7 +331,27 @@ def delete_entry(entry_id):
 @itsales_bp.route("/summary", methods=["GET"])
 @role_required("IT Sales")
 def finance_summary():
-    entries = _apply_date_filters(FinanceEntry.query.filter_by(department=DEPARTMENT)).all()
+    # 1. Native IT Sales entries
+    query = FinanceEntry.query.filter_by(department=DEPARTMENT)
+    query = _apply_date_filters(query)
+
+    # 2. Salary entries from Corporate with exec_department = IT Sales
+    salary_query = FinanceEntry.query.filter(
+        FinanceEntry.department == "Corporate",
+        FinanceEntry.exec_department == "IT Sales",
+        FinanceEntry.entry_type == "Expenses",
+        FinanceEntry.category == "Payroll Salaries"
+    )
+    start_date = _parse_date(request.args.get("start_date"))
+    end_date = _parse_date(request.args.get("end_date"))
+    if start_date:
+        salary_query = salary_query.filter(FinanceEntry.entry_date >= start_date)
+    if end_date:
+        salary_query = salary_query.filter(FinanceEntry.entry_date <= end_date)
+
+    combined_query = query.union(salary_query)
+
+    entries = combined_query.all()
 
     total_income = sum(float(e.amount) for e in entries if e.entry_type == "Income")
     total_expenses = sum(float(e.amount) for e in entries if e.entry_type == "Expenses")

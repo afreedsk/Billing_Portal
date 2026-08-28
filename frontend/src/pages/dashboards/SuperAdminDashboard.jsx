@@ -21,36 +21,15 @@ import api from "../../api/axios.js";
 const DEPARTMENTS_CONFIG = [
   { label: "Overview", value: "overview" },
   { label: "Corporate Management", value: "Corporate" },
-  { label: "Office Management", value: "Adminstrationfunctionalunit" },
-  { label: "Caredx", value: "Caredx" },
-  { label: "IT Development", value: "IT", extra: { revenue_type: "Development" } },
-  { label: "IT Sales", value: "IT Sales" },   // <-- now separate department
+  { label: "Office Administration", value: "Adminstrationfunctionalunit" },
+  { label: "CareDx", value: "Caredx" },
+  { label: "IT Development", value: "IT" },
+  { label: "IT Sales", value: "IT Sales" },
   { label: "MedTech", value: "MedTech" },
   { label: "PCM", value: "PCM" },
   { label: "Research Development", value: "ResearchDevelopment" },
+  { label: "Dental", value: "Dental" },
 ];
-
-// Hardcoded category lists for specific departments (Caredx expenses, PCM)
-const DEPARTMENT_CATEGORIES = {
-  Caredx: {
-    expenses: [
-      "Reagents and Laboratory Consumables",
-      "Specialized Clinical Labor",
-      "Logistics, Couriers, and Specimen Collection",
-      "Equipment Maintenance, Leases, and Automation",
-      "Waste Management, Compliance, and Safety",
-      "Billing, Revenue Cycle, and Administration",
-    ],
-  },
-  PCM: [
-    "Field Labor and Nursing Care",
-    "Travel and Mileage Reimbursement",
-    "Point-of-Care Technology and Telecom",
-    "Home Medical Supplies and DME",
-    "Intake, Scheduling, and Back-Office Logistics",
-    "Regulatory and Risk Management",
-  ],
-};
 
 const PIE_COLORS = ["#2f5dd4", "#16a34a", "#d97706", "#8b5cf6", "#dc2626", "#0ea5e9", "#8b5cf6"];
 
@@ -63,9 +42,6 @@ const firstOfMonth = () => {
 };
 const todayStr = () => new Date().toISOString().split("T")[0];
 
-// ------------------------------------------------------------------
-// Main Component
-// ------------------------------------------------------------------
 export default function SuperAdminDashboard() {
   // ---------- State ----------
   const [overview, setOverview] = useState(null);
@@ -79,7 +55,7 @@ export default function SuperAdminDashboard() {
   const [searchTerm, setSearchTerm] = useState("");
 
   const [selectedCategory, setSelectedCategory] = useState(null);
-  const [caredxSection, setCaredxSection] = useState("lab"); // "lab" or "expenses"
+  const [caredxSection, setCaredxSection] = useState("lab");
   const [departmentOptions, setDepartmentOptions] = useState(null);
 
   const [deptEntries, setDeptEntries] = useState([]);
@@ -135,7 +111,6 @@ export default function SuperAdminDashboard() {
       };
 
       const entriesRes = await api.get(`/admin/departments/${activeDept}/entries`, { params });
-
       const summaryParams = {
         start_date: startDate,
         end_date: endDate,
@@ -146,10 +121,10 @@ export default function SuperAdminDashboard() {
       const summaryRes = await api.get(`/admin/departments/${activeDept}/summary`, { params: summaryParams });
 
       if (activeDept === "Caredx") {
-        setCaredxLabEntries(entriesRes.data.lab_entries);
-        setCaredxExpenses(entriesRes.data.expenses);
+        setCaredxLabEntries(entriesRes.data.lab_entries || []);
+        setCaredxExpenses(entriesRes.data.expenses || []);
       } else {
-        setDeptEntries(entriesRes.data.entries);
+        setDeptEntries(entriesRes.data.entries || []);
       }
       setDeptSummary(summaryRes.data);
     } catch (err) {
@@ -278,21 +253,24 @@ export default function SuperAdminDashboard() {
   // ---------- Derived data ----------
   const currentDeptLabel = DEPARTMENTS_CONFIG.find(d => d.value === activeDept)?.label || activeDept;
 
-  // Determine which categories to show
+  // ✅ Modified categories logic – Corporate shows only Expenses
   let categories = [];
-  if (activeDept === "Caredx") {
-    if (caredxSection === "expenses") {
-      categories = DEPARTMENT_CATEGORIES.Caredx.expenses;
+  if (departmentOptions?.categories) {
+    if (activeDept === "Caredx" && caredxSection === "expenses") {
+      categories = (departmentOptions.categories.Expenses || []).filter(c => c !== "Others");
+    } else if (activeDept === "Caredx" && caredxSection === "lab") {
+      categories = [];
+    } else if (activeDept === "Corporate") {
+      // For Corporate Management, show only Expense categories
+      categories = (departmentOptions.categories.Expenses || []).filter(c => c !== "Others");
+    } else {
+      // For all other departments, show both Income and Expenses
+      const allCats = new Set();
+      Object.values(departmentOptions.categories).forEach(catList => catList.forEach(c => allCats.add(c)));
+      categories = Array.from(allCats).filter(c => c !== "Others");
     }
-  } else if (activeDept === "PCM") {
-    categories = DEPARTMENT_CATEGORIES.PCM;
-  } else if (departmentOptions?.categories) {
-    const allCats = new Set();
-    Object.values(departmentOptions.categories).forEach(catList => catList.forEach(c => allCats.add(c)));
-    categories = Array.from(allCats).filter(c => c !== "Others");
   }
 
-  // Sort overview departments by custom order
   const sortedDepartments = React.useMemo(() => {
     if (!overview?.by_department) return [];
     const orderMap = {};
@@ -319,7 +297,8 @@ export default function SuperAdminDashboard() {
       <Navbar title="CEO Dashboard" roleColor="#7c3aed" />
 
       <main className="page-main">
-        {/* Filter Bar */}
+        {/* ========== FILTER PANEL ========== */}
+        <p className="section-title" style={{ marginBottom: 8 }}>Filter Panel</p>
         <div className="card" style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "flex-end" }}>
           <div className="form-group" style={{ marginBottom: 0 }}>
             <label className="form-label">Department</label>
@@ -392,11 +371,13 @@ export default function SuperAdminDashboard() {
         {/* Overview Mode */}
         {activeDept === "overview" && (
           <>
+            {/* ========== SUMMARY PANEL ========== */}
+            <p className="section-title" style={{ marginBottom: 8 }}>Summary Panel</p>
             <div className="stat-grid">
               <div className="card stat-card">
                 <div className="stat-icon stat-icon--team"><Users size={22} /></div>
                 <div>
-                  <p className="stat-label">Total Team Members</p>
+                  <p className="stat-label">Total Departments</p>
                   <p className="stat-value">{overview?.total_members ?? "—"}</p>
                 </div>
               </div>
@@ -423,82 +404,90 @@ export default function SuperAdminDashboard() {
               </div>
             </div>
 
+            {/* ========== CATEGORIES PANEL ========== */}
             {overview?.by_department && (
-              <div className="card">
-                <p className="section-title" style={{ marginBottom: 16 }}>
-                  Income / Expenses / Profit by Department
-                </p>
-                <div className="dept-grid">
-                  {sortedDepartments.map((d) => {
-                    const config = DEPARTMENTS_CONFIG.find(c => c.value === d.department);
-                    const label = config ? config.label : d.department;
-                    return (
-                      <button
-                        key={d.department}
-                        type="button"
-                        onClick={() => handleSelectDept(d.department)}
-                        className="dept-card"
-                        style={{ textAlign: "left", cursor: "pointer", border: activeDept === d.department ? "2px solid #7c3aed" : undefined }}
-                      >
-                        <p className="dept-card-title">{label}</p>
-                        <div className="dept-row">
-                          <span className="dept-row-label">Income</span>
-                          <span className="dept-row-value--income">{formatCurrency(d.income)}</span>
-                        </div>
-                        <div className="dept-row">
-                          <span className="dept-row-label">Expenses</span>
-                          <span className="dept-row-value--expense">{formatCurrency(d.expenses)}</span>
-                        </div>
-                        <div className="dept-row dept-row--total">
-                          <span className="dept-row-label">Profit</span>
-                          <span className={`dept-row-value--profit ${d.profit < 0 ? "negative" : ""}`}>
-                            {formatCurrency(d.profit)}
-                          </span>
-                        </div>
-                      </button>
-                    );
-                  })}
+              <>
+                <p className="section-title" style={{ marginBottom: 8 }}>Categories Panel</p>
+                <div className="card">
+                  <p className="section-title" style={{ marginBottom: 16 }}>
+                    Income / Expenses / Profit by Department
+                  </p>
+                  <div className="dept-grid">
+                    {sortedDepartments.map((d) => {
+                      const config = DEPARTMENTS_CONFIG.find(c => c.value === d.department);
+                      const label = config ? config.label : d.department;
+                      return (
+                        <button
+                          key={d.department}
+                          type="button"
+                          onClick={() => handleSelectDept(d.department)}
+                          className="dept-card"
+                          style={{ textAlign: "left", cursor: "pointer", border: activeDept === d.department ? "2px solid #7c3aed" : undefined }}
+                        >
+                          <p className="dept-card-title">{label}</p>
+                          <div className="dept-row">
+                            <span className="dept-row-label">Income</span>
+                            <span className="dept-row-value--income">{formatCurrency(d.income)}</span>
+                          </div>
+                          <div className="dept-row">
+                            <span className="dept-row-label">Expenses</span>
+                            <span className="dept-row-value--expense">{formatCurrency(d.expenses)}</span>
+                          </div>
+                          <div className="dept-row dept-row--total">
+                            <span className="dept-row-label">Profit</span>
+                            <span className={`dept-row-value--profit ${d.profit < 0 ? "negative" : ""}`}>
+                              {formatCurrency(d.profit)}
+                            </span>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
-              </div>
+              </>
             )}
 
+            {/* ========== DISPLAY PANEL ========== */}
             {overview?.by_department && (
-              <div className="chart-grid">
-                <div className="card chart-card">
-                  <h3>Income vs Expenses by Department</h3>
-                  <ResponsiveContainer width="100%" height={280}>
-                    <BarChart data={overview.by_department}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#eef0f4" />
-                      <XAxis dataKey="department" tick={{ fontSize: 12, fill: "#9ca3af" }} />
-                      <YAxis tick={{ fontSize: 11, fill: "#9ca3af" }} />
-                      <Tooltip formatter={(v) => formatCurrency(v)} />
-                      <Legend />
-                      <Bar dataKey="income" fill="#16a34a" name="Income" radius={[4, 4, 0, 0]} />
-                      <Bar dataKey="expenses" fill="#dc2626" name="Expenses" radius={[4, 4, 0, 0]} />
-                    </BarChart>
-                  </ResponsiveContainer>
+              <>
+                <p className="section-title" style={{ marginBottom: 8 }}>Display Panel</p>
+                <div className="chart-grid">
+                  <div className="card chart-card">
+                    <h3>Income vs Expenses by Department</h3>
+                    <ResponsiveContainer width="100%" height={280}>
+                      <BarChart data={overview.by_department}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#eef0f4" />
+                        <XAxis dataKey="department" tick={{ fontSize: 12, fill: "#9ca3af" }} />
+                        <YAxis tick={{ fontSize: 11, fill: "#9ca3af" }} />
+                        <Tooltip formatter={(v) => formatCurrency(v)} />
+                        <Legend />
+                        <Bar dataKey="income" fill="#16a34a" name="Income" radius={[4, 4, 0, 0]} />
+                        <Bar dataKey="expenses" fill="#dc2626" name="Expenses" radius={[4, 4, 0, 0]} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                  <div className="card chart-card">
+                    <h3>Department Share of Total Volume</h3>
+                    <ResponsiveContainer width="100%" height={280}>
+                      <PieChart>
+                        <Pie
+                          data={pieData}
+                          dataKey="value"
+                          nameKey="name"
+                          cx="50%" cy="50%"
+                          outerRadius={90}
+                          label={(entry) => entry.name}
+                        >
+                          {pieData.map((_, idx) => (
+                            <Cell key={idx} fill={PIE_COLORS[idx % PIE_COLORS.length]} />
+                          ))}
+                        </Pie>
+                        <Tooltip formatter={(v) => formatCurrency(v)} />
+                      </PieChart>
+                    </ResponsiveContainer>
+                  </div>
                 </div>
-                <div className="card chart-card">
-                  <h3>Department Share of Total Volume</h3>
-                  <ResponsiveContainer width="100%" height={280}>
-                    <PieChart>
-                      <Pie
-                        data={pieData}
-                        dataKey="value"
-                        nameKey="name"
-                        cx="50%" cy="50%"
-                        outerRadius={90}
-                        label={(entry) => entry.name}
-                      >
-                        {pieData.map((_, idx) => (
-                          <Cell key={idx} fill={PIE_COLORS[idx % PIE_COLORS.length]} />
-                        ))}
-                      </Pie>
-                      <Tooltip formatter={(v) => formatCurrency(v)} />
-                    </PieChart>
-                  </ResponsiveContainer>
-                </div>
-              </div>
+              </>
             )}
           </>
         )}
@@ -506,17 +495,25 @@ export default function SuperAdminDashboard() {
         {/* Department Mode */}
         {activeDept !== "overview" && (
           <>
+            {/* ========== SUMMARY PANEL ========== */}
             {deptSummary && (
-              <StatCards
-                totalIncome={deptSummary.total_income}
-                totalExpenses={deptSummary.total_expenses}
-                profit={deptSummary.profit}
-                entryCount={deptSummary.entry_count}
-              />
+              <>
+                <p className="section-title" style={{ marginBottom: 8 }}>Summary Panel</p>
+                <StatCards
+                  totalIncome={deptSummary.total_income}
+                  totalExpenses={deptSummary.total_expenses}
+                  profit={deptSummary.profit}
+                  entryCount={deptSummary.entry_count}
+                />
+              </>
             )}
 
+            {/* ========== DISPLAY PANEL ========== */}
             {deptSummary && (
-              <FinanceCharts trend={deptSummary.trend} categoryBreakdown={deptSummary.category_breakdown} />
+              <>
+                <p className="section-title" style={{ marginBottom: 8 }}>Display Panel</p>
+                <FinanceCharts trend={deptSummary.trend} categoryBreakdown={deptSummary.category_breakdown} />
+              </>
             )}
 
             {activeDept === "Caredx" && (
@@ -525,17 +522,18 @@ export default function SuperAdminDashboard() {
                   className={`btn ${caredxSection === "lab" ? "btn-primary" : "btn-secondary"}`}
                   onClick={() => handleCaredxSectionChange("lab")}
                 >
-                  Lab Entries
+                  Caredx Lab Revenue
                 </button>
                 <button
                   className={`btn ${caredxSection === "expenses" ? "btn-primary" : "btn-secondary"}`}
                   onClick={() => handleCaredxSectionChange("expenses")}
                 >
-                  Expenses
+                  Caredx Expenses
                 </button>
               </div>
             )}
 
+            {/* ========== CATEGORIES FILTER ========== */}
             {categories.length > 0 && (
               <div className="card" style={{ marginBottom: 16 }}>
                 <p className="section-title" style={{ marginBottom: 12 }}>Categories</p>
@@ -563,12 +561,14 @@ export default function SuperAdminDashboard() {
               </div>
             )}
 
+            {/* ========== TRANSACTIONAL PANEL ========== */}
             {deptLoading ? (
               <div className="card empty-state">Loading...</div>
             ) : activeDept === "Caredx" ? (
               <>
                 {caredxSection === "lab" && (
                   <div>
+                    <p className="section-title" style={{ marginBottom: 8 }}>Transactional Panel</p>
                     <p className="section-title" style={{ marginBottom: 12 }}>Lab Data Entries</p>
                     {caredxLabEntries.length === 0 ? (
                       <div className="card empty-state">No lab entries found for this filter.</div>
@@ -614,6 +614,7 @@ export default function SuperAdminDashboard() {
 
                 {caredxSection === "expenses" && (
                   <div>
+                    <p className="section-title" style={{ marginBottom: 8 }}>Transactional Panel</p>
                     <p className="section-title" style={{ marginBottom: 12 }}>Expenses</p>
                     {caredxExpenses.length === 0 ? (
                       <div className="card empty-state">No expenses found for this filter.</div>
@@ -622,22 +623,26 @@ export default function SuperAdminDashboard() {
                         <table className="data-table">
                           <thead>
                             <tr>
-                              <th>Date</th><th>Category</th><th className="text-right">Amount</th>
-                              <th>Remarks</th><th>Actions</th>
+                              <th>Date</th><th>Category</th>
+                              <th className="text-right">Amount</th>
+                              <th>Remarks</th>
+                              <th className="text-right">Actions</th>
                             </tr>
                           </thead>
                           <tbody>
                             {caredxExpenses.map((e) => (
-                              <tr key={e.id}>
-                                <td style={{ whiteSpace: "nowrap" }}>{e.expense_date}</td>
+                              <tr key={e.id || e._key}>
+                                <td style={{ whiteSpace: "nowrap" }}>{e.expense_date || e.entry_date}</td>
                                 <td>{e.category}</td>
                                 <td className="text-right" style={{ fontWeight: 600 }}>{formatCurrency(e.amount)}</td>
-                                <td className="truncate">{e.remarks || "—"}</td>
+                                <td className="truncate">
+                                  {e.remarks || (e.employee_name ? `Salary for ${e.employee_name}` : "—")}
+                                </td>
                                 <td>
                                   <button
                                     type="button"
                                     className="btn-icon"
-                                    onClick={() => setViewEntry({ type: "expense", data: e })}
+                                    onClick={() => setViewEntry({ type: e._isSalary ? "finance" : "expense", data: e })}
                                     title="View"
                                   >
                                     <Eye size={15} />
@@ -654,11 +659,12 @@ export default function SuperAdminDashboard() {
               </>
             ) : (
               <div>
+                <p className="section-title" style={{ marginBottom: 8 }}>Transactional Panel</p>
                 <p className="section-title" style={{ marginBottom: 12 }}>{currentDeptLabel} Finance Entries</p>
                 <FinanceTable
                   entries={deptEntries}
-                  onEdit={() => {}}
-                  onDelete={() => {}}
+                  // onEdit={() => {}}
+                  // onDelete={() => {}}
                   onView={(entry) => setViewEntry({ type: "finance", data: entry })}
                 />
               </div>

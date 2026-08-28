@@ -4,7 +4,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 
 db = SQLAlchemy()
 
-ROLES = ["SuperAdmin", "IT", "IT Sales","PCM", "MedTech", "Caredx", "Corporate", "Adminstrationfunctionalunit", "ResearchDevelopment"]
+ROLES = ["SuperAdmin", "admin", "IT", "IT Sales", "PCM", "MedTech", "Caredx", "Corporate", "Adminstrationfunctionalunit", "ResearchDevelopment", "Dental"]
 ENTRY_TYPES = ["Income", "Expenses"]
 
 DEPARTMENT_CONFIG = {
@@ -12,13 +12,22 @@ DEPARTMENT_CONFIG = {
         "categories": {
             "Income": ["Web Services", "Portal Services", "Others"],
             "Expenses": [
-                "Personal Costs (Salaries, Bonuses, Wages)",
-                "Software Licenses and Cloud Services",
-                "Hardware & Infrastructure Maintenance",
-                "Third-party Contractors and Vendors",
-                "Facilities or Overhead Costs (Office Space Rent and Utilities)",
-                "Others"
-            ],
+                "Payroll Salaries",
+                "Travel & Entertainment",
+                "Marketing Expenses",
+                "Assets & Infra Cost",
+                "General Operations",
+                "Innovation",
+                "Miscellaneous Categories",
+                "Service Revenue",
+                "Supplies and Equipments",
+                "Legal Governance",
+                "Guest Concierge",
+                # "Consulting",   # removed
+                # "Management Fees",   # removed
+                "Office Management",
+                "Other"
+            ]
         },
         "revenue_types": ["Subscription", "One-Time", "Renewal", "Maintenance", "Other"],
         "show_generated_by": True,
@@ -31,23 +40,36 @@ DEPARTMENT_CONFIG = {
         "show_invoice": True,
         "show_gst_tax": False,
         "show_tax_invoice_number": False,
+        # No is_salary_category – IT does not allow salary entry
     },
 
-    "IT Sales": {  # NEW
+    "IT Sales": {
         "categories": {
             "Income": [
-                "Software Sales",
                 "Hardware Sales",
                 "Consulting",
                 "Support & Maintenance",
+                "Service Revenue",
+                "Internal allocations",   # <-- NEW category added
                 "Others"
             ],
             "Expenses": [
-                "Hardware and Infrastructure Reselling (Servers, Equipment)",
-                "Personal Costs and Compensation (Salaries, Bonuses, Benefits, Recruiter Hiring)",
-                "Travel, Entertainment and Field Costs (Client Meetings, Dinners, Team Lunch, Conferences)",
-                "Software Services and Implementations",
-                "Others"
+                "Payroll Salaries",            # visible but disabled
+                "Travel & Entertainment",
+                "Marketing Expenses",
+                "Assets & Infra Cost",
+                "General Operations",
+                "Innovation",
+                "Miscellaneous Categories",
+                "Service Revenue",
+                "Supplies and Equipments",
+                "Legal Governance",
+                "Guest Concierge",
+                "Office Management",
+                "Consulting",
+                "Management Fees",
+                "Hardware Sales",
+                "Other"
             ]
         },
         "revenue_types": ["Direct", "Recurring", "Project-based"],
@@ -56,17 +78,56 @@ DEPARTMENT_CONFIG = {
         "show_patient_fields": False,
         "show_client_name": True,
         "show_gst_number": True,
-        "gst_required_categories": ["Hardware Sales", "Software Sales"],
+        "gst_required_categories": ["Hardware Sales"],
         "show_items": False,
         "show_invoice": True,
         "show_gst_tax": True,
         "show_tax_invoice_number": True,
+        # No is_salary_category – IT Sales does not allow salary entry
+    },
+
+    "Dental": {
+        "categories": {
+            "Income": ["Consulting", "Other"],
+            "Expenses": ["Salaries", "Supplies", "Equipment", "Payroll Salaries", "Other"],
+        },
+        "revenue_types": [],
+        "show_generated_by": False,
+        "show_revenue_type": False,
+        "show_patient_fields": False,
+        "show_client_name": False,
+        "show_gst_number": False,
+        "gst_required_categories": [],
+        "show_items": False,
+        "show_invoice": False,
+        "show_gst_tax": False,
+        "show_tax_invoice_number": False,
+        "is_salary_category": "Payroll Salaries",
+        "exec_departments": ["Dental"],
     },
 
     "Caredx": {
         "categories": {
             "Income": ["Lab", "Camp", "Walkin/Person", "Referral"],
-            "Expenses": ["Lab to Lab", "Lab Equipments/Chemicals", "Others"],
+            "Expenses": [
+                "Payroll Salaries",
+                "Travel & Entertainment",
+                "Marketing Expenses",
+                "Assets & Infra Cost",
+                "General Operations",
+                "Innovation",
+                "Miscellaneous Categories",
+                "Service Revenue",
+                "Supplies & Equipments",
+                "Legal Governance",
+                "Reagents and Laboratory Consumables",
+                "Specialized Clinical Labor",
+                "Logistics, Couriers, and Specimen Collection",
+                "Equipment Maintenance, Leases, and Automation",
+                "Waste Management, Compliance, and Safety",
+                "Billing, Revenue Cycle, and Administration",
+                "Other"
+            ],
         },
         "revenue_types": ["Direct", "Recurring"],
         "show_generated_by": False,
@@ -79,7 +140,9 @@ DEPARTMENT_CONFIG = {
         "show_invoice": False,
         "show_gst_tax": False,
         "show_tax_invoice_number": False,
+        # No is_salary_category – CareDx does not allow salary entry
     },
+
     "PCM": {
         "categories": {
             "Income": [
@@ -91,12 +154,21 @@ DEPARTMENT_CONFIG = {
                 "Regulatory and Risk Management"
             ],
             "Expenses": [
-                "Field Labor and Nursing Care",
-                "Travel and Mileage Reimbursement",
-                "Point-of-Care Technology and Telecom",
-                "Home Medical Supplies and DME",
-                "Intake, Scheduling, and Back-Office Logistics",
-                "Regulatory and Risk Management"
+                "Payroll Salaries",            # visible but disabled
+                "Travel & Entertainment",
+                "Marketing Expenses",
+                "Assets & Infra Cost",
+                "General Operations",
+                "Innovation",
+                "Miscellaneous Categories",
+                "Service Revenue",
+                "Supplies and Equipments",
+                "Legal Governance",
+                "Guest Concierge",
+                "Office Management",
+                # "Consulting",   # removed
+                # "Management Fees",   # removed
+                "Other"
             ]
         },
         "revenue_types": [],
@@ -110,11 +182,29 @@ DEPARTMENT_CONFIG = {
         "show_invoice": False,
         "show_gst_tax": False,
         "show_tax_invoice_number": False,
+        # No is_salary_category – PCM does not allow salary entry
     },
+
     "MedTech": {
         "categories": {
-            "Income": ["Wholesale", "Retail", "B2C"],
-            "Expenses": ["Wholesale", "Retail", "B2C"],
+            "Income": ["B2B Revenue", "B2C Revenue"],
+            "Expenses": [
+                "Payroll Salaries",            # visible but disabled
+                "Travel & Entertainment",
+                "Marketing Expenses",
+                "Assets & Infra Cost",
+                "General Operations",
+                "Innovation",
+                "Miscellaneous Categories",
+                "Service Revenue",
+                "Supplies and Equipments",
+                "Legal Governance",
+                "Guest Concierge",
+                "Office Management",
+                # "Consulting",   # removed
+                # "Management Fees",   # removed
+                "Other"
+            ],
         },
         "revenue_types": ["Direct", "Recurring"],
         "show_generated_by": True,
@@ -122,12 +212,14 @@ DEPARTMENT_CONFIG = {
         "show_patient_fields": False,
         "show_client_name": True,
         "show_gst_number": True,
-        "gst_required_categories": ["Wholesale"],
+        "gst_required_categories": [],
         "show_items": True,
         "show_invoice": True,
         "show_gst_tax": True,
         "show_tax_invoice_number": True,
+        # No is_salary_category – MedTech does not allow salary entry
     },
+
     "Corporate": {
         "categories": {
             "Income": [
@@ -136,14 +228,18 @@ DEPARTMENT_CONFIG = {
                 "Other"
             ],
             "Expenses": [
-                "Executive Compensation",
-                "Governance & Legal",
-                "Travel Expenses",
-                "Corporate Concierge",
-                "Administration - Workplace Overhead",
-                "Administration - Daily Operations",
-                "Administration - Core IT & SaaS",
-                "Other"
+                "Payroll Salaries",
+                "Travel & Entertainment",
+                "Marketing Expenses",
+                "Assets & Infra Cost",
+                "General Operations",
+                "Innovation",
+                "Miscellaneous Categories",
+                "Service Revenue",
+                "Supplies and Equipments",
+                "Legal Governance",
+                "Guest Concierge",
+                "Office Management"
             ]
         },
         "revenue_types": [],
@@ -157,15 +253,27 @@ DEPARTMENT_CONFIG = {
         "show_invoice": False,
         "show_gst_tax": False,
         "show_tax_invoice_number": False,
+        "is_salary_category": "Payroll Salaries",
+        "exec_departments": ["Corporate", "Caredx", "MedTech", "IT", "IT Sales", "PCM", "Dental"],
     },
+
     "Adminstrationfunctionalunit": {
         "categories": {
-            "Income": ["Internal Allocations", "Other"],
+            "Income": ["Other"],   # Internal Allocations removed
             "Expenses": [
-                "Rent and Utilities",
-                "Office Maintenance and Supplies",
-                "Staff and Travel",
-                "Professional and Legal Services",
+                "Travel & Entertainment",
+                "Marketing Expenses",
+                "Assets & Infra Cost",
+                "General Operations",
+                "Innovation",
+                "Miscellaneous Categories",
+                "Service Revenue",
+                "Supplies and Equipments",
+                "Legal Governance",
+                "Guest Concierge",
+                "Office Management",
+                # "Consulting",   # removed
+                "Management Fees",
                 "Other"
             ],
         },
@@ -180,7 +288,9 @@ DEPARTMENT_CONFIG = {
         "show_invoice": False,
         "show_gst_tax": False,
         "show_tax_invoice_number": False,
+        # No salary category
     },
+
     "ResearchDevelopment": {
         "categories": {
             "Income": ["Grants", "Funding", "Other"],
@@ -203,6 +313,7 @@ DEPARTMENT_CONFIG = {
         "show_invoice": False,
         "show_gst_tax": False,
         "show_tax_invoice_number": False,
+        # No salary category
     },
 }
 
@@ -211,16 +322,14 @@ VALID_DEPARTMENTS = list(DEPARTMENT_CONFIG.keys())
 
 class User(db.Model):
     __tablename__ = "users"
-
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(120), nullable=False)
     email = db.Column(db.String(150), unique=True, nullable=False, index=True)
     password_hash = db.Column(db.String(255), nullable=False)
-    role = db.Column(db.String(30), nullable=False)
+    role = db.Column(db.String(50), nullable=False)
     department = db.Column(db.String(100), nullable=True)
     is_active = db.Column(db.Boolean, default=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
-
     entries = db.relationship("FinanceEntry", backref="creator", lazy=True)
 
     def set_password(self, raw_password):
@@ -243,12 +352,11 @@ class User(db.Model):
 
 class FinanceEntry(db.Model):
     __tablename__ = "finance_entries"
-
     id = db.Column(db.Integer, primary_key=True)
     department = db.Column(db.String(50), nullable=False)
     entry_type = db.Column(db.String(20), nullable=False)
     category = db.Column(db.String(60), nullable=False)
-    sub_category = db.Column(db.String(60), nullable=True)          # AFU sub-category
+    sub_category = db.Column(db.String(60), nullable=True)
     generated_by = db.Column(db.String(120), nullable=True)
     revenue_type = db.Column(db.String(50), nullable=True)
     patient_name = db.Column(db.String(150), nullable=True)
@@ -262,11 +370,13 @@ class FinanceEntry(db.Model):
     gst_tax_amount = db.Column(db.Numeric(14, 2), nullable=True, default=0)
     tax_invoice_number = db.Column(db.String(50), nullable=True)
 
-    # Executive compensation fields (Corporate)
     exec_department = db.Column(db.String(50), nullable=True)
     employee_name = db.Column(db.String(150), nullable=True)
     salary_amount = db.Column(db.Numeric(14, 2), nullable=True)
     allowance_amount = db.Column(db.Numeric(14, 2), nullable=True)
+    
+    vehicle_type = db.Column(db.String(100), nullable=True)
+    purpose = db.Column(db.Text, nullable=True)
 
     remarks = db.Column(db.Text, nullable=True)
 
@@ -279,6 +389,8 @@ class FinanceEntry(db.Model):
     created_by_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    extra_data = db.Column(db.JSON, nullable=True)
 
     items = db.relationship(
         "FinanceEntryItem",
@@ -310,12 +422,15 @@ class FinanceEntry(db.Model):
             "employee_name": self.employee_name,
             "salary_amount": float(self.salary_amount) if self.salary_amount is not None else None,
             "allowance_amount": float(self.allowance_amount) if self.allowance_amount is not None else None,
+            "vehicle_type": self.vehicle_type,
+            "purpose": self.purpose,
             "remarks": self.remarks,
             "invoice_url": f"/files/invoices/{self.invoice_filename}" if self.invoice_filename else None,
             "invoice_original_name": self.invoice_original_name,
             "invoice_mimetype": self.invoice_mimetype,
             "entry_date": self.entry_date.isoformat() if self.entry_date else None,
             "items": [i.to_dict() for i in self.items],
+            "extra_data": self.extra_data,
             "created_by": self.creator.name if self.creator else None,
             "created_at": self.created_at.isoformat() if self.created_at else None,
         }
@@ -323,13 +438,8 @@ class FinanceEntry(db.Model):
 
 class FinanceEntryItem(db.Model):
     __tablename__ = "finance_entry_items"
-
     id = db.Column(db.Integer, primary_key=True)
-    finance_entry_id = db.Column(
-        db.Integer,
-        db.ForeignKey("finance_entries.id", ondelete="CASCADE"),
-        nullable=False,
-    )
+    finance_entry_id = db.Column(db.Integer, db.ForeignKey("finance_entries.id", ondelete="CASCADE"), nullable=False)
     item_name = db.Column(db.String(200), nullable=False)
     quantity = db.Column(db.Numeric(12, 2), nullable=False, default=1)
     unit_price = db.Column(db.Numeric(14, 2), nullable=False, default=0)
@@ -348,15 +458,12 @@ class FinanceEntryItem(db.Model):
 
 class CaredxLabEntry(db.Model):
     __tablename__ = "caredx_lab_entries"
-
     id = db.Column(db.Integer, primary_key=True)
-
     entry_date = db.Column(db.Date, nullable=False)
     patient_name = db.Column(db.String(150), nullable=False)
     test_name = db.Column(db.String(255), nullable=False)
     total_amount_paid = db.Column(db.Numeric(14, 2), nullable=False, default=0)
     employee_name = db.Column(db.String(150), nullable=True)
-
     cash = db.Column(db.Numeric(14, 2), nullable=False, default=0)
     online = db.Column(db.Numeric(14, 2), nullable=False, default=0)
     paid_to_other_labs = db.Column(db.Numeric(14, 2), nullable=False, default=0)
@@ -366,7 +473,6 @@ class CaredxLabEntry(db.Model):
     referral_by = db.Column(db.String(150), nullable=True)
     referral_amount = db.Column(db.Numeric(14, 2), nullable=False, default=0)
     sales = db.Column(db.Numeric(14, 2), nullable=False, default=0)
-
     created_by_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -394,14 +500,14 @@ class CaredxLabEntry(db.Model):
 
 class CaredxExpense(db.Model):
     __tablename__ = "caredx_expenses"
-
     id = db.Column(db.Integer, primary_key=True)
-
     expense_date = db.Column(db.Date, nullable=False)
     category = db.Column(db.String(150), nullable=False)
     amount = db.Column(db.Numeric(14, 2), nullable=False)
     remarks = db.Column(db.Text, nullable=True)
-
+    employee_name = db.Column(db.String(150), nullable=True)
+    purpose = db.Column(db.Text, nullable=True)
+    vehicle_type = db.Column(db.String(100), nullable=True)
     created_by_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -413,5 +519,8 @@ class CaredxExpense(db.Model):
             "category": self.category,
             "amount": float(self.amount or 0),
             "remarks": self.remarks,
+            "employee_name": self.employee_name,
+            "purpose": self.purpose,
+            "vehicle_type": self.vehicle_type,
             "created_at": self.created_at.isoformat() if self.created_at else None,
         }

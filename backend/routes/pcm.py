@@ -1,7 +1,10 @@
-"""PCM finance routes — Income/Expenses entries with new Home Health categories."""
+"""PCM finance routes — Income/Expenses entries with new Home Health categories.
+Now includes salary entries from Corporate Management.
+"""
 from datetime import datetime, date
 from flask import Blueprint, request, jsonify, send_file
 from flask_jwt_extended import get_jwt_identity
+from sqlalchemy import or_
 
 from models import db, FinanceEntry, ENTRY_TYPES, DEPARTMENT_CONFIG
 from utils import role_required
@@ -54,12 +57,22 @@ def create_entry():
     entry_type = data.get("entry_type")
     category = data.get("category")
     amount = data.get("amount")
-    remarks = data.get("remarks", "")
+    remarks = (data.get("remarks") or "").strip()
     patient_name = (data.get("patient_name") or "").strip() or None
     patient_place = (data.get("patient_place") or "").strip() or None
     entry_date = _parse_date(data.get("entry_date"), default=date.today())
 
+    # New fields for PCM categories
+    employee_name = (data.get("employee_name") or "").strip() or None
+    purpose = (data.get("purpose") or "").strip() or None
+    vehicle_type = (data.get("vehicle_type") or "").strip() or None
+
     errors = []
+
+    # Block salary category creation in PCM
+    if category == "Payroll Salaries":
+        errors.append("Salaries must be entered by Corporate Management only.")
+
     if entry_type not in ENTRY_TYPES:
         errors.append("entry_type must be Income or Expenses.")
 
@@ -73,6 +86,11 @@ def create_entry():
             errors.append("amount must be greater than 0.")
     except (TypeError, ValueError):
         errors.append("amount must be a number.")
+        amount = 0
+
+    # For expense entries (excluding salary), remarks is mandatory
+    if entry_type == "Expenses" and category != "Payroll Salaries" and not remarks:
+        errors.append("Remarks are required.")
 
     if errors:
         return jsonify({"message": "Validation failed.", "errors": errors}), 400
@@ -87,6 +105,9 @@ def create_entry():
         remarks=remarks,
         entry_date=entry_date,
         created_by_id=get_jwt_identity(),
+        employee_name=employee_name,
+        purpose=purpose,
+        vehicle_type=vehicle_type,
     )
     db.session.add(entry)
     db.session.commit()
@@ -97,31 +118,50 @@ def create_entry():
 @pcm_bp.route("/entries", methods=["GET"])
 @role_required("PCM")
 def list_entries():
+    # 1. Native PCM entries
     query = FinanceEntry.query.filter_by(department=DEPARTMENT)
     query = _apply_date_filters(query)
 
+    # 2. Salary entries from Corporate with exec_department = PCM
+    salary_query = FinanceEntry.query.filter(
+        FinanceEntry.department == "Corporate",
+        FinanceEntry.exec_department == "PCM",
+        FinanceEntry.entry_type == "Expenses",
+        FinanceEntry.category == "Payroll Salaries"
+    )
+    start_date = _parse_date(request.args.get("start_date"))
+    end_date = _parse_date(request.args.get("end_date"))
+    if start_date:
+        salary_query = salary_query.filter(FinanceEntry.entry_date >= start_date)
+    if end_date:
+        salary_query = salary_query.filter(FinanceEntry.entry_date <= end_date)
+
+    # Combine both
+    combined_query = query.union(salary_query)
+
     entry_type = request.args.get("entry_type")
     if entry_type in ENTRY_TYPES:
-        query = query.filter(FinanceEntry.entry_type == entry_type)
+        combined_query = combined_query.filter(FinanceEntry.entry_type == entry_type)
 
     category = request.args.get("category")
     if category:
-        query = query.filter(FinanceEntry.category == category)
+        combined_query = combined_query.filter(FinanceEntry.category == category)
 
     search = request.args.get("search")
     if search:
         like = f"%{search}%"
-        query = query.filter(
-            db.or_(
+        combined_query = combined_query.filter(
+            or_(
                 FinanceEntry.remarks.ilike(like),
                 FinanceEntry.patient_name.ilike(like),
                 FinanceEntry.patient_place.ilike(like),
                 FinanceEntry.category.ilike(like),
+                FinanceEntry.employee_name.ilike(like),
             )
         )
 
-    query = query.order_by(FinanceEntry.entry_date.desc(), FinanceEntry.id.desc())
-    return jsonify({"entries": [e.to_dict() for e in query.all()]}), 200
+    combined_query = combined_query.order_by(FinanceEntry.entry_date.desc(), FinanceEntry.id.desc())
+    return jsonify({"entries": [e.to_dict() for e in combined_query.all()]}), 200
 
 
 @pcm_bp.route("/entries/<int:entry_id>", methods=["PUT"])
@@ -136,6 +176,11 @@ def update_entry(entry_id):
     allowed_categories = CONFIG["categories"].get(new_type, [])
 
     errors = []
+
+    # Block changing category to Payroll Salaries
+    new_category = data.get("category", entry.category)
+    if new_category == "Payroll Salaries" and entry.category != "Payroll Salaries":
+        errors.append("Salaries must be entered by Corporate Management only.")
 
     if "entry_type" in data and data["entry_type"] in ENTRY_TYPES:
         entry.entry_type = data["entry_type"]
@@ -158,11 +203,23 @@ def update_entry(entry_id):
         except (TypeError, ValueError):
             pass
     if "remarks" in data:
-        entry.remarks = data["remarks"]
+        entry.remarks = (data["remarks"] or "").strip()
     if "entry_date" in data:
         parsed = _parse_date(data["entry_date"])
         if parsed:
             entry.entry_date = parsed
+
+    # New fields
+    if "employee_name" in data:
+        entry.employee_name = (data["employee_name"] or "").strip() or None
+    if "purpose" in data:
+        entry.purpose = (data["purpose"] or "").strip() or None
+    if "vehicle_type" in data:
+        entry.vehicle_type = (data["vehicle_type"] or "").strip() or None
+
+    # Remarks mandatory for PCM expenses (except salary)
+    if entry.entry_type == "Expenses" and entry.category != "Payroll Salaries" and not entry.remarks:
+        errors.append("Remarks are required.")
 
     if errors:
         return jsonify({"message": "Validation failed.", "errors": errors}), 400
@@ -185,7 +242,27 @@ def delete_entry(entry_id):
 @pcm_bp.route("/summary", methods=["GET"])
 @role_required("PCM")
 def finance_summary():
-    entries = _apply_date_filters(FinanceEntry.query.filter_by(department=DEPARTMENT)).all()
+    # 1. Native PCM entries
+    query = FinanceEntry.query.filter_by(department=DEPARTMENT)
+    query = _apply_date_filters(query)
+
+    # 2. Salary entries from Corporate with exec_department = PCM
+    salary_query = FinanceEntry.query.filter(
+        FinanceEntry.department == "Corporate",
+        FinanceEntry.exec_department == "PCM",
+        FinanceEntry.entry_type == "Expenses",
+        FinanceEntry.category == "Payroll Salaries"
+    )
+    start_date = _parse_date(request.args.get("start_date"))
+    end_date = _parse_date(request.args.get("end_date"))
+    if start_date:
+        salary_query = salary_query.filter(FinanceEntry.entry_date >= start_date)
+    if end_date:
+        salary_query = salary_query.filter(FinanceEntry.entry_date <= end_date)
+
+    combined_query = query.union(salary_query)
+
+    entries = combined_query.all()
 
     total_income = sum(float(e.amount) for e in entries if e.entry_type == "Income")
     total_expenses = sum(float(e.amount) for e in entries if e.entry_type == "Expenses")

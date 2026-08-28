@@ -15,12 +15,14 @@ from io import BytesIO
 
 from flask import Blueprint, request, jsonify, send_file
 from flask_jwt_extended import get_jwt_identity
+from sqlalchemy import or_
 
 from models import (
     db,
     User,
     CaredxLabEntry,
     CaredxExpense,
+    FinanceEntry,
 )
 
 from utils import role_required
@@ -627,7 +629,7 @@ def export_lab_entries():
 
 
 # ---------------------------------------------------------------------------
-# 2. EXPENSES
+# 2. EXPENSES (UPDATED)
 # ---------------------------------------------------------------------------
 
 @caredx_bp.route(
@@ -636,91 +638,56 @@ def export_lab_entries():
 )
 @role_required("Caredx")
 def create_expense():
-    data = request.get_json(
-        silent=True
-    ) or {}
+    data = request.get_json(silent=True) or {}
 
-    expense_date = _parse_date(
-        data.get("expense_date"),
-        default=date.today(),
-    )
-
-    category = (
-        data.get("category") or ""
-    ).strip()
-
+    expense_date = _parse_date(data.get("expense_date"), default=date.today())
+    category = (data.get("category") or "").strip()
     amount = data.get("amount")
-
-    remarks = (
-        data.get("remarks") or ""
-    ).strip()
+    remarks = (data.get("remarks") or "").strip()
+    employee_name = (data.get("employee_name") or "").strip() or None
+    purpose = (data.get("purpose") or "").strip() or None
+    vehicle_type = (data.get("vehicle_type") or "").strip() or None
 
     errors = []
 
     if not category:
-        errors.append(
-            "category is required."
-        )
+        errors.append("category is required.")
+
+    # Prevent salary category from being created here
+    if category == "Payroll Salaries":
+        errors.append("Salaries must be entered by Corporate Management only.")
 
     try:
         amount = float(amount)
-
         if amount <= 0:
-            errors.append(
-                "amount must be greater than 0."
-            )
-
+            errors.append("amount must be greater than 0.")
     except (TypeError, ValueError):
-        errors.append(
-            "amount must be a number."
-        )
+        errors.append("amount must be a number.")
         amount = 0
 
     if errors:
-        return jsonify(
-            {
-                "message":
-                    "Validation failed.",
-                "errors":
-                    errors,
-            }
-        ), 400
+        return jsonify({"message": "Validation failed.", "errors": errors}), 400
 
     expense = CaredxExpense(
         expense_date=expense_date,
         category=category,
         amount=amount,
         remarks=remarks,
+        employee_name=employee_name,
+        purpose=purpose,
+        vehicle_type=vehicle_type,
         created_by_id=_get_valid_user_id(),
     )
 
     try:
         db.session.add(expense)
         db.session.commit()
-
     except Exception as exc:
         db.session.rollback()
+        print("Caredx expense create error:", exc)
+        return jsonify({"message": "Failed to create expense."}), 500
 
-        print(
-            "Caredx expense create error:",
-            exc,
-        )
-
-        return jsonify(
-            {
-                "message":
-                    "Failed to create expense."
-            }
-        ), 500
-
-    return jsonify(
-        {
-            "message":
-                "Expense added.",
-            "expense":
-                expense.to_dict(),
-        }
-    ), 201
+    return jsonify({"message": "Expense added.", "expense": expense.to_dict()}), 201
 
 
 @caredx_bp.route(
@@ -729,37 +696,70 @@ def create_expense():
 )
 @role_required("Caredx")
 def list_expenses():
-    query = _apply_date_filters(
-        CaredxExpense.query,
-        CaredxExpense.expense_date,
-    )
+    # 1. Fetch regular CaredxExpense records
+    query = _apply_date_filters(CaredxExpense.query, CaredxExpense.expense_date)
+    search = (request.args.get("search") or "").strip()
+    if search:
+        like = f"%{search}%"
+        query = query.filter(
+            (CaredxExpense.category.ilike(like))
+            | (CaredxExpense.remarks.ilike(like))
+            | (CaredxExpense.employee_name.ilike(like))
+            | (CaredxExpense.purpose.ilike(like))
+        )
+    caredx_expenses = query.order_by(
+        CaredxExpense.expense_date.desc(),
+        CaredxExpense.id.desc()
+    ).all()
 
-    search = (
-        request.args.get("search") or ""
-    ).strip()
+    # 2. Fetch salary entries from FinanceEntry for Caredx
+    salary_query = FinanceEntry.query.filter(
+        FinanceEntry.category == "Payroll Salaries",
+        or_(
+            FinanceEntry.department == "Caredx",
+            (FinanceEntry.department == "Corporate") & (FinanceEntry.exec_department == "Caredx")
+        )
+    )
+    # Apply date filters
+    start_date = _parse_date(request.args.get("start_date"))
+    end_date = _parse_date(request.args.get("end_date"))
+    if start_date:
+        salary_query = salary_query.filter(FinanceEntry.entry_date >= start_date)
+    if end_date:
+        salary_query = salary_query.filter(FinanceEntry.entry_date <= end_date)
 
     if search:
         like = f"%{search}%"
-
-        query = query.filter(
-            (CaredxExpense.category.ilike(like))
-            |
-            (CaredxExpense.remarks.ilike(like))
+        salary_query = salary_query.filter(
+            (FinanceEntry.employee_name.ilike(like))
+            | (FinanceEntry.remarks.ilike(like))
         )
 
-    query = query.order_by(
-        CaredxExpense.expense_date.desc(),
-        CaredxExpense.id.desc(),
-    )
+    salary_entries = salary_query.order_by(
+        FinanceEntry.entry_date.desc(),
+        FinanceEntry.id.desc()
+    ).all()
 
-    return jsonify(
-        {
-            "expenses": [
-                expense.to_dict()
-                for expense in query.all()
-            ]
-        }
-    ), 200
+    # 3. Convert salary entries to expense-like dicts
+    salary_items = []
+    for s in salary_entries:
+        salary_items.append({
+            "id": -s.id,  # negative to avoid collision with CaredxExpense IDs
+            "expense_date": s.entry_date.isoformat(),
+            "category": "Payroll Salaries",
+            "amount": float(s.amount),
+            "remarks": f"Salary for {s.employee_name} ({s.exec_department}) - {s.remarks or ''}",
+            "employee_name": s.employee_name,
+            "purpose": s.remarks,
+            "vehicle_type": s.vehicle_type,
+            "_isSalary": True,
+        })
+
+    # 4. Combine and sort by date descending
+    all_items = [e.to_dict() for e in caredx_expenses] + salary_items
+    all_items.sort(key=lambda x: x["expense_date"], reverse=True)
+
+    return jsonify({"expenses": all_items}), 200
 
 
 @caredx_bp.route(
@@ -768,96 +768,55 @@ def list_expenses():
 )
 @role_required("Caredx")
 def update_expense(expense_id):
-    expense = CaredxExpense.query.get(
-        expense_id
-    )
+    expense = CaredxExpense.query.get(expense_id)
 
     if not expense:
-        return jsonify(
-            {
-                "message":
-                    "Expense not found."
-            }
-        ), 404
+        return jsonify({"message": "Expense not found."}), 404
 
-    data = request.get_json(
-        silent=True
-    ) or {}
+    data = request.get_json(silent=True) or {}
 
     try:
         if "category" in data:
-            category = (
-                data.get("category") or ""
-            ).strip()
-
+            category = (data.get("category") or "").strip()
             if category:
+                if category == "Payroll Salaries":
+                    return jsonify({"message": "Salaries must be entered by Corporate Management only."}), 400
                 expense.category = category
 
         if "amount" in data:
-            amount = float(
-                data.get("amount")
-            )
-
+            amount = float(data.get("amount"))
             if amount <= 0:
-                return jsonify(
-                    {
-                        "message":
-                            "Amount must be greater than 0."
-                    }
-                ), 400
-
+                return jsonify({"message": "Amount must be greater than 0."}), 400
             expense.amount = amount
 
         if "remarks" in data:
-            expense.remarks = (
-                data.get("remarks") or ""
-            ).strip()
+            expense.remarks = (data.get("remarks") or "").strip()
+
+        if "employee_name" in data:
+            expense.employee_name = (data.get("employee_name") or "").strip() or None
+
+        if "purpose" in data:
+            expense.purpose = (data.get("purpose") or "").strip() or None
+
+        if "vehicle_type" in data:
+            expense.vehicle_type = (data.get("vehicle_type") or "").strip() or None
 
         if "expense_date" in data:
-            parsed_date = _parse_date(
-                data.get("expense_date")
-            )
-
+            parsed_date = _parse_date(data.get("expense_date"))
             if parsed_date:
-                expense.expense_date = (
-                    parsed_date
-                )
+                expense.expense_date = parsed_date
 
         db.session.commit()
 
     except (TypeError, ValueError):
         db.session.rollback()
-
-        return jsonify(
-            {
-                "message":
-                    "Invalid expense amount."
-            }
-        ), 400
-
+        return jsonify({"message": "Invalid expense amount."}), 400
     except Exception as exc:
         db.session.rollback()
+        print("Caredx expense update error:", exc)
+        return jsonify({"message": "Failed to update expense."}), 500
 
-        print(
-            "Caredx expense update error:",
-            exc,
-        )
-
-        return jsonify(
-            {
-                "message":
-                    "Failed to update expense."
-            }
-        ), 500
-
-    return jsonify(
-        {
-            "message":
-                "Expense updated.",
-            "expense":
-                expense.to_dict(),
-        }
-    ), 200
+    return jsonify({"message": "Expense updated.", "expense": expense.to_dict()}), 200
 
 
 @caredx_bp.route(
@@ -866,43 +825,20 @@ def update_expense(expense_id):
 )
 @role_required("Caredx")
 def delete_expense(expense_id):
-    expense = CaredxExpense.query.get(
-        expense_id
-    )
+    expense = CaredxExpense.query.get(expense_id)
 
     if not expense:
-        return jsonify(
-            {
-                "message":
-                    "Expense not found."
-            }
-        ), 404
+        return jsonify({"message": "Expense not found."}), 404
 
     try:
         db.session.delete(expense)
         db.session.commit()
-
     except Exception as exc:
         db.session.rollback()
+        print("Caredx expense delete error:", exc)
+        return jsonify({"message": "Failed to delete expense."}), 500
 
-        print(
-            "Caredx expense delete error:",
-            exc,
-        )
-
-        return jsonify(
-            {
-                "message":
-                    "Failed to delete expense."
-            }
-        ), 500
-
-    return jsonify(
-        {
-            "message":
-                "Expense deleted."
-        }
-    ), 200
+    return jsonify({"message": "Expense deleted."}), 200
 
 
 # ---------------------------------------------------------------------------
@@ -929,10 +865,27 @@ def lab_entries_summary():
         CaredxLabEntry.entry_date,
     ).all()
 
-    expenses = _apply_date_filters(
-        CaredxExpense.query,
-        CaredxExpense.expense_date,
-    ).all()
+    # Expenses: fetch both CaredxExpense and salary entries from FinanceEntry
+    exp_query = _apply_date_filters(CaredxExpense.query, CaredxExpense.expense_date)
+    caredx_expenses = exp_query.all()
+
+    salary_query = FinanceEntry.query.filter(
+        FinanceEntry.category == "Payroll Salaries",
+        or_(
+            FinanceEntry.department == "Caredx",
+            (FinanceEntry.department == "Corporate") & (FinanceEntry.exec_department == "Caredx")
+        )
+    )
+    start_date = _parse_date(request.args.get("start_date"))
+    end_date = _parse_date(request.args.get("end_date"))
+    if start_date:
+        salary_query = salary_query.filter(FinanceEntry.entry_date >= start_date)
+    if end_date:
+        salary_query = salary_query.filter(FinanceEntry.entry_date <= end_date)
+    salary_entries = salary_query.all()
+
+    # Combine expenses
+    all_expenses = list(caredx_expenses) + list(salary_entries)
 
     def total(field):
         return sum(
@@ -951,8 +904,8 @@ def lab_entries_summary():
     )
 
     total_expenses = sum(
-        float(expense.amount or 0)
-        for expense in expenses
+        float(expense.amount or 0) if hasattr(expense, 'amount') else float(expense.amount or 0)
+        for expense in all_expenses
     )
 
     profit = (
@@ -986,7 +939,7 @@ def lab_entries_summary():
             entry.total_amount_paid or 0
         )
 
-    for expense in expenses:
+    for expense in caredx_expenses:
         if not expense.expense_date:
             continue
 
@@ -1005,6 +958,25 @@ def lab_entries_summary():
             expense.amount or 0
         )
 
+    for salary in salary_entries:
+        if not salary.entry_date:
+            continue
+
+        key = salary.entry_date.isoformat()
+
+        by_date.setdefault(
+            key,
+            {
+                "date": key,
+                "income": 0,
+                "expenses": 0,
+            },
+        )
+
+        by_date[key]["expenses"] += float(
+            salary.amount or 0
+        )
+
     trend = sorted(
         by_date.values(),
         key=lambda item: item["date"],
@@ -1016,7 +988,7 @@ def lab_entries_summary():
 
     by_category = {}
 
-    for expense in expenses:
+    for expense in caredx_expenses:
         category = (
             expense.category
             or "Uncategorized"
@@ -1033,6 +1005,15 @@ def lab_entries_summary():
         by_category[category]["amount"] += (
             float(expense.amount or 0)
         )
+
+    # Add salary category
+    total_salary = sum(float(s.amount or 0) for s in salary_entries)
+    if total_salary > 0:
+        by_category.setdefault(
+            "Payroll Salaries",
+            {"category": "Payroll Salaries", "amount": 0}
+        )
+        by_category["Payroll Salaries"]["amount"] += total_salary
 
     return jsonify(
         {
@@ -1070,7 +1051,7 @@ def lab_entries_summary():
                 profit,
 
             "expense_count":
-                len(expenses),
+                len(all_expenses),
 
             "trend":
                 trend,

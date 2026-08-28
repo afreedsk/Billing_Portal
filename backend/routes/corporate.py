@@ -1,6 +1,9 @@
-"""Corporate Management routes — Income/Expenses entries."""
+"""Corporate finance routes — Income/Expenses entries.
+Payroll Salaries category uses exec_department to allocate salaries.
+Now supports multiple employees per submission and stores entries under "Corporate".
+"""
 from datetime import datetime, date
-from flask import Blueprint, request, jsonify, current_app
+from flask import Blueprint, request, jsonify
 from flask_jwt_extended import get_jwt_identity
 
 from models import db, FinanceEntry, ENTRY_TYPES, DEPARTMENT_CONFIG
@@ -8,6 +11,9 @@ from utils import role_required
 
 DEPARTMENT = "Corporate"
 CONFIG = DEPARTMENT_CONFIG[DEPARTMENT]
+
+# Allowed departments for salary allocation (from config)
+EXEC_DEPARTMENTS = CONFIG.get("exec_departments", [])
 
 corporate_bp = Blueprint("corporate", __name__, url_prefix="/api/corporate")
 
@@ -19,22 +25,6 @@ def _parse_date(value, default=None):
         return datetime.strptime(value, "%Y-%m-%d").date()
     except ValueError:
         return default
-
-
-def _parse_decimal(value):
-    """Return a float for numeric-ish input, or None for blank/invalid values.
-
-    Without this, an empty string ("") sent from the form for salary_amount /
-    allowance_amount gets passed straight into a Numeric(14,2) DB column,
-    which the DB driver can't cast, raising an exception during commit that
-    surfaces to the client as a bare 500 Internal Server Error.
-    """
-    if value in (None, ""):
-        return None
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return None
 
 
 def _apply_date_filters(query):
@@ -60,10 +50,13 @@ def options():
         "show_patient_fields": CONFIG["show_patient_fields"],
         "show_client_name": CONFIG["show_client_name"],
         "show_gst_number": CONFIG["show_gst_number"],
+        "gst_required_categories": CONFIG["gst_required_categories"],
         "show_items": CONFIG["show_items"],
         "show_invoice": CONFIG["show_invoice"],
-        # Indicate that we support executive compensation fields
-        "show_executive_compensation": True,
+        "show_gst_tax": CONFIG["show_gst_tax"],
+        "show_tax_invoice_number": CONFIG["show_tax_invoice_number"],
+        "exec_departments": EXEC_DEPARTMENTS,
+        "is_salary_category": CONFIG.get("is_salary_category"),
     }), 200
 
 
@@ -71,34 +64,87 @@ def options():
 @role_required("Corporate")
 def create_entry():
     data = request.get_json(silent=True) or {}
+
+    # Check if this is a bulk salary submission
+    if "entries" in data and isinstance(data["entries"], list):
+        salary_entries = data["entries"]
+        if not salary_entries:
+            return jsonify({"message": "No employee entries provided."}), 400
+
+        created = []
+        errors = []
+        for idx, emp_data in enumerate(salary_entries):
+            emp_errors = _validate_salary_entry(emp_data)
+            if emp_errors:
+                errors.append(f"Employee {idx+1}: " + "; ".join(emp_errors))
+                continue
+
+            entry = _create_single_salary_entry(emp_data)
+            if entry:
+                created.append(entry)
+            else:
+                errors.append(f"Employee {idx+1}: failed to create.")
+
+        if errors and not created:
+            return jsonify({"message": "All employees failed.", "errors": errors}), 400
+        elif errors:
+            db.session.commit()
+            return jsonify({
+                "message": f"Created {len(created)} of {len(salary_entries)} salary entries.",
+                "errors": errors,
+                "entries": [e.to_dict() for e in created]
+            }), 201
+        else:
+            db.session.commit()
+            return jsonify({
+                "message": f"Created {len(created)} salary entries.",
+                "entries": [e.to_dict() for e in created]
+            }), 201
+
+    # Single entry (non-salary or single salary)
+    errors = []
     entry_type = data.get("entry_type")
     category = data.get("category")
+    generated_by = (data.get("generated_by") or "").strip()
+    client_name = (data.get("client_name") or "").strip() or None
     amount = data.get("amount")
     remarks = data.get("remarks", "")
-    generated_by = data.get("generated_by", "").strip() or None
-    client_name = data.get("client_name", "").strip() or None
     entry_date = _parse_date(data.get("entry_date"), default=date.today())
 
-    # Executive compensation fields (only meaningful when
-    # category == "Executive Compensation", but the form always sends them,
-    # so they must be safely parsed/nulled regardless of category).
-    exec_department = data.get("exec_department") or None
+    exec_department = data.get("exec_department")
     employee_name = (data.get("employee_name") or "").strip() or None
-    salary_amount = _parse_decimal(data.get("salary_amount"))
-    allowance_amount = _parse_decimal(data.get("allowance_amount"))
+    salary_amount = data.get("salary_amount")
+    allowance_amount = data.get("allowance_amount")
 
-    errors = []
     if entry_type not in ENTRY_TYPES:
         errors.append("entry_type must be Income or Expenses.")
+
     allowed_categories = CONFIG["categories"].get(entry_type, [])
     if category not in allowed_categories:
         errors.append(f"category must be one of: {', '.join(allowed_categories)}.")
+
+    # If salary category, require exec_department, employee_name, salary_amount or allowance_amount
+    if entry_type == "Expenses" and category == CONFIG.get("is_salary_category"):
+        if not exec_department:
+            errors.append("exec_department is required for Payroll Salaries.")
+        elif exec_department not in EXEC_DEPARTMENTS:
+            errors.append(f"exec_department must be one of: {', '.join(EXEC_DEPARTMENTS)}.")
+        if not employee_name:
+            errors.append("employee_name is required for Payroll Salaries.")
+        for field, val in [("salary_amount", salary_amount), ("allowance_amount", allowance_amount)]:
+            if val is not None:
+                try:
+                    float(val)
+                except (TypeError, ValueError):
+                    errors.append(f"{field} must be a number.")
+
     try:
         amount = float(amount)
         if amount <= 0:
             errors.append("amount must be greater than 0.")
     except (TypeError, ValueError):
         errors.append("amount must be a number.")
+
     if errors:
         return jsonify({"message": "Validation failed.", "errors": errors}), 400
 
@@ -114,47 +160,97 @@ def create_entry():
         created_by_id=get_jwt_identity(),
         exec_department=exec_department,
         employee_name=employee_name,
-        salary_amount=salary_amount,
-        allowance_amount=allowance_amount,
+        salary_amount=float(salary_amount) if salary_amount is not None else None,
+        allowance_amount=float(allowance_amount) if allowance_amount is not None else None,
     )
-
-    try:
-        db.session.add(entry)
-        db.session.commit()
-    except Exception:
-        db.session.rollback()
-        current_app.logger.exception("Failed to create Corporate finance entry")
-        return jsonify({"message": "Internal server error."}), 500
-
+    db.session.add(entry)
+    db.session.commit()
     return jsonify({"message": "Entry created.", "entry": entry.to_dict()}), 201
+
+
+def _validate_salary_entry(emp_data):
+    """Validate a single employee salary dictionary."""
+    errors = []
+    exec_department = emp_data.get("exec_department")
+    employee_name = (emp_data.get("employee_name") or "").strip()
+    salary_amount = emp_data.get("salary_amount")
+    allowance_amount = emp_data.get("allowance_amount")
+
+    if not exec_department:
+        errors.append("Department is required.")
+    elif exec_department not in EXEC_DEPARTMENTS:
+        errors.append(f"Department must be one of: {', '.join(EXEC_DEPARTMENTS)}.")
+    if not employee_name:
+        errors.append("Employee name is required.")
+    try:
+        sal = float(salary_amount) if salary_amount is not None else 0
+        allow = float(allowance_amount) if allowance_amount is not None else 0
+        if sal <= 0 and allow <= 0:
+            errors.append("At least one of Salary or TADA must be greater than 0.")
+    except (TypeError, ValueError):
+        errors.append("Salary and TADA must be numbers.")
+    return errors
+
+
+def _create_single_salary_entry(emp_data):
+    """Create a FinanceEntry from employee data, stored under 'Corporate' with target department in exec_department."""
+    total = float(emp_data.get("salary_amount") or 0) + float(emp_data.get("allowance_amount") or 0)
+    if total <= 0:
+        return None
+    entry = FinanceEntry(
+        department="Corporate",  # Store under Corporate
+        entry_type="Expenses",
+        category=CONFIG.get("is_salary_category"),  # "Payroll Salaries"
+        generated_by=None,
+        client_name=None,
+        amount=total,
+        remarks=emp_data.get("remarks", ""),
+        entry_date=_parse_date(emp_data.get("entry_date"), default=date.today()),
+        created_by_id=get_jwt_identity(),
+        exec_department=emp_data.get("exec_department"),  # target department
+        employee_name=(emp_data.get("employee_name") or "").strip(),
+        salary_amount=float(emp_data.get("salary_amount") or 0),
+        allowance_amount=float(emp_data.get("allowance_amount") or 0),
+    )
+    db.session.add(entry)
+    return entry
 
 
 @corporate_bp.route("/entries", methods=["GET"])
 @role_required("Corporate")
 def list_entries():
     query = FinanceEntry.query.filter_by(department=DEPARTMENT)
-    query = _apply_date_filters(query)
+    query = _apply_date_filters(query)   # No category filter – all entries
+
     entry_type = request.args.get("entry_type")
     if entry_type in ENTRY_TYPES:
         query = query.filter(FinanceEntry.entry_type == entry_type)
+
     category = request.args.get("category")
     if category:
         query = query.filter(FinanceEntry.category == category)
+
+    exec_dept = request.args.get("exec_department")
+    if exec_dept:
+        query = query.filter(FinanceEntry.exec_department == exec_dept)
+
     search = request.args.get("search")
     if search:
         like = f"%{search}%"
         query = query.filter(
-            db.or_(
-                FinanceEntry.remarks.ilike(like),
-                FinanceEntry.generated_by.ilike(like),
-                FinanceEntry.client_name.ilike(like),
-                FinanceEntry.category.ilike(like),
-                FinanceEntry.employee_name.ilike(like),
-                FinanceEntry.exec_department.ilike(like),
-            )
+            (FinanceEntry.generated_by.ilike(like))
+            | (FinanceEntry.client_name.ilike(like))
+            | (FinanceEntry.employee_name.ilike(like))
+            | (FinanceEntry.remarks.ilike(like))
         )
+
     query = query.order_by(FinanceEntry.entry_date.desc(), FinanceEntry.id.desc())
-    return jsonify({"entries": [e.to_dict() for e in query.all()]}), 200
+    entries = query.all()
+    
+    # Debug: print count
+    print(f"Corporate entries returned: {len(entries)}")
+    
+    return jsonify({"entries": [e.to_dict() for e in entries]}), 200
 
 
 @corporate_bp.route("/entries/<int:entry_id>", methods=["PUT"])
@@ -163,24 +259,27 @@ def update_entry(entry_id):
     entry = FinanceEntry.query.filter_by(id=entry_id, department=DEPARTMENT).first()
     if not entry:
         return jsonify({"message": "Entry not found."}), 404
+
     data = request.get_json(silent=True) or {}
+    errors = []
+
     if "entry_type" in data and data["entry_type"] in ENTRY_TYPES:
         entry.entry_type = data["entry_type"]
     if "category" in data:
         allowed = CONFIG["categories"].get(entry.entry_type, [])
         if data["category"] in allowed:
             entry.category = data["category"]
+    if "generated_by" in data:
+        entry.generated_by = (data["generated_by"] or "").strip() or None
+    if "client_name" in data:
+        entry.client_name = (data["client_name"] or "").strip() or None
     if "amount" in data:
         try:
-            amount = float(data["amount"])
-            if amount > 0:
-                entry.amount = amount
+            amt = float(data["amount"])
+            if amt > 0:
+                entry.amount = amt
         except (TypeError, ValueError):
             pass
-    if "generated_by" in data:
-        entry.generated_by = data["generated_by"].strip() or None
-    if "client_name" in data:
-        entry.client_name = data["client_name"].strip() or None
     if "remarks" in data:
         entry.remarks = data["remarks"]
     if "entry_date" in data:
@@ -188,24 +287,28 @@ def update_entry(entry_id):
         if parsed:
             entry.entry_date = parsed
 
-    # Executive compensation fields — use _parse_decimal so that sending an
-    # empty string correctly *clears* the field instead of being ignored.
     if "exec_department" in data:
-        entry.exec_department = data["exec_department"] or None
+        if data["exec_department"] not in EXEC_DEPARTMENTS:
+            errors.append(f"exec_department must be one of: {', '.join(EXEC_DEPARTMENTS)}.")
+        else:
+            entry.exec_department = data["exec_department"]
     if "employee_name" in data:
         entry.employee_name = (data["employee_name"] or "").strip() or None
     if "salary_amount" in data:
-        entry.salary_amount = _parse_decimal(data["salary_amount"])
+        try:
+            entry.salary_amount = float(data["salary_amount"]) if data["salary_amount"] is not None else None
+        except (TypeError, ValueError):
+            errors.append("salary_amount must be a number.")
     if "allowance_amount" in data:
-        entry.allowance_amount = _parse_decimal(data["allowance_amount"])
+        try:
+            entry.allowance_amount = float(data["allowance_amount"]) if data["allowance_amount"] is not None else None
+        except (TypeError, ValueError):
+            errors.append("allowance_amount must be a number.")
 
-    try:
-        db.session.commit()
-    except Exception:
-        db.session.rollback()
-        current_app.logger.exception("Failed to update Corporate finance entry %s", entry_id)
-        return jsonify({"message": "Internal server error."}), 500
+    if errors:
+        return jsonify({"message": "Validation failed.", "errors": errors}), 400
 
+    db.session.commit()
     return jsonify({"message": "Entry updated.", "entry": entry.to_dict()}), 200
 
 
@@ -215,14 +318,8 @@ def delete_entry(entry_id):
     entry = FinanceEntry.query.filter_by(id=entry_id, department=DEPARTMENT).first()
     if not entry:
         return jsonify({"message": "Entry not found."}), 404
-    try:
-        db.session.delete(entry)
-        db.session.commit()
-    except Exception:
-        db.session.rollback()
-        current_app.logger.exception("Failed to delete Corporate finance entry %s", entry_id)
-        return jsonify({"message": "Internal server error."}), 500
-
+    db.session.delete(entry)
+    db.session.commit()
     return jsonify({"message": "Entry deleted."}), 200
 
 
@@ -230,18 +327,23 @@ def delete_entry(entry_id):
 @role_required("Corporate")
 def finance_summary():
     entries = _apply_date_filters(FinanceEntry.query.filter_by(department=DEPARTMENT)).all()
+    # No category filter
+
     total_income = sum(float(e.amount) for e in entries if e.entry_type == "Income")
     total_expenses = sum(float(e.amount) for e in entries if e.entry_type == "Expenses")
+
     by_date = {}
     for e in entries:
         key = e.entry_date.isoformat()
         by_date.setdefault(key, {"date": key, "income": 0, "expenses": 0})
         by_date[key]["income" if e.entry_type == "Income" else "expenses"] += float(e.amount)
     trend = sorted(by_date.values(), key=lambda x: x["date"])
+
     by_category = {}
     for e in entries:
         by_category.setdefault(e.category, {"category": e.category, "amount": 0})
         by_category[e.category]["amount"] += float(e.amount)
+
     return jsonify({
         "department": DEPARTMENT,
         "total_income": total_income,
