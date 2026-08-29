@@ -1,11 +1,8 @@
-"""MedTech finance routes - Income/Expenses entries
-Now includes salary entries from Corporate Management.
-"""
+"""MedTech finance routes - Income/Expenses entries"""
 import json
 from datetime import datetime, date
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import get_jwt_identity
-from sqlalchemy import or_
 
 from models import db, FinanceEntry, FinanceEntryItem, ENTRY_TYPES, DEPARTMENT_CONFIG
 from utils import role_required
@@ -14,8 +11,8 @@ from file_utils import save_invoice_file, delete_invoice_file
 DEPARTMENT = "MedTech"
 CONFIG = DEPARTMENT_CONFIG[DEPARTMENT]
 
+# *** CRITICAL: The blueprint MUST be named medtech_bp ***
 medtech_bp = Blueprint("medtech", __name__, url_prefix="/api/medtech")
-
 
 def _parse_date(value, default=None):
     if not value:
@@ -25,7 +22,6 @@ def _parse_date(value, default=None):
     except ValueError:
         return default
 
-
 def _apply_date_filters(query):
     start_date = _parse_date(request.args.get("start_date"))
     end_date = _parse_date(request.args.get("end_date"))
@@ -34,7 +30,6 @@ def _apply_date_filters(query):
     if end_date:
         query = query.filter(FinanceEntry.entry_date <= end_date)
     return query
-
 
 def _validate_items(items_data):
     clean_items = []
@@ -68,7 +63,6 @@ def _validate_items(items_data):
         errors.append("Add at least one item.")
     return clean_items, items_total, errors
 
-
 def _parse_gst_tax_percent(raw_value):
     if raw_value in (None, ""):
         return 0.0, None
@@ -79,7 +73,6 @@ def _parse_gst_tax_percent(raw_value):
     if percent < 0 or percent > 100:
         return 0.0, "gst_tax_percent must be between 0 and 100."
     return percent, None
-
 
 @medtech_bp.route("/options", methods=["GET"])
 @role_required("MedTech")
@@ -111,72 +104,66 @@ def create_entry():
     client_name = (data.get("client_name") or "").strip() or None
     gst_number = (data.get("gst_number") or "").strip() or None
     tax_invoice_number = (data.get("tax_invoice_number") or "").strip() or None
-    remarks = (data.get("remarks") or "").strip()
+    remarks = data.get("remarks", "")
     entry_date = _parse_date(data.get("entry_date"), default=date.today())
 
-    # New fields for MedTech categories
+    # Travel Expense Fields
     employee_name = (data.get("employee_name") or "").strip() or None
-    purpose = (data.get("purpose") or "").strip() or None
     vehicle_type = (data.get("vehicle_type") or "").strip() or None
     amount = data.get("amount")
 
+    # *** CRITICAL: Case-insensitive check for travel expenses ***
+    is_travel_expense = category and category.lower() == "travel expenses"
+
     errors = []
-
-    # Block salary category creation in MedTech
-    if category == "Payroll Salaries":
-        errors.append("Salaries must be entered by Corporate Management only.")
-
     if entry_type not in ENTRY_TYPES:
         errors.append("entry_type must be Income or Expenses.")
 
     allowed_categories = CONFIG["categories"].get(entry_type, [])
-    if category not in allowed_categories:
+    # *** Allow travel expenses even if case mismatch in DB ***
+    if category not in allowed_categories and not is_travel_expense:
         errors.append(f"category must be one of: {', '.join(allowed_categories)}.")
 
-    # Standard MedTech validations
-    if entry_type == "Income" and not generated_by:
-        errors.append("generated_by (employee name) is required for Income entries.")
-
-    if CONFIG["show_revenue_type"] and revenue_type not in CONFIG["revenue_types"]:
-        errors.append(f"revenue_type must be one of: {', '.join(CONFIG['revenue_types'])}.")
-
-    if CONFIG["show_gst_number"] and category in CONFIG["gst_required_categories"] and not gst_number:
-        errors.append(f"gst_number is required for {category} entries.")
-
-    # Handle GST tax percent – ensure it's None if empty
-    gst_tax_percent_raw = data.get("gst_tax_percent")
-    gst_tax_percent, gst_tax_error = _parse_gst_tax_percent(gst_tax_percent_raw)
-    if gst_tax_error:
-        errors.append(gst_tax_error)
-
-    # For expense entries (excluding salary), remarks is mandatory
-    if entry_type == "Expenses" and category != "Payroll Salaries" and not remarks:
-        errors.append("Remarks are required.")
-
-    # Items handling: if items are provided, use them; otherwise use amount
-    try:
-        items_data = json.loads(data.get("items") or "[]")
-    except (TypeError, ValueError):
-        items_data = []
-        errors.append("Items data could not be read.")
-
-    if items_data:
-        clean_items, items_total, item_errors = _validate_items(items_data)
-        errors.extend(item_errors)
-    else:
-        # No items – use amount field
-        clean_items = []
+    # *** BYPASS STANDARD VALIDATIONS FOR TRAVEL EXPENSES ***
+    if is_travel_expense:
+        if not employee_name:
+            errors.append("employee_name is required for travel expenses.")
+        if not vehicle_type:
+            errors.append("vehicle_type is required for travel expenses.")
+        if not remarks:
+            errors.append("remarks (purpose) is required for travel expenses.")
         try:
-            items_total = float(amount) if amount else 0
-            if items_total <= 0:
+            amount = float(amount)
+            if amount <= 0:
                 errors.append("amount must be greater than 0.")
         except (TypeError, ValueError):
             errors.append("amount must be a number.")
+    else:
+        # Standard MedTech validations
+        if not generated_by:
+            errors.append("generated_by (employee name) is required.")
+        if revenue_type not in CONFIG["revenue_types"]:
+            errors.append(f"revenue_type must be one of: {', '.join(CONFIG['revenue_types'])}.")
+        if category in CONFIG["gst_required_categories"] and not gst_number:
+            errors.append(f"gst_number is required for {category} entries.")
+        
+        gst_tax_percent, gst_tax_error = _parse_gst_tax_percent(data.get("gst_tax_percent"))
+        if gst_tax_error:
+            errors.append(gst_tax_error)
 
-    # Invoice handling
+        try:
+            items_data = json.loads(data.get("items") or "[]")
+        except (TypeError, ValueError):
+            items_data = []
+            errors.append("Items data could not be read.")
+
+        clean_items, items_total, item_errors = _validate_items(items_data)
+        errors.extend(item_errors)
+
+    # Invoice handling (skip for travel)
     invoice_path = invoice_original = invoice_mimetype = None
     invoice_file = request.files.get("invoice")
-    if CONFIG["show_invoice"] and invoice_file and invoice_file.filename:
+    if invoice_file and invoice_file.filename and not is_travel_expense:
         try:
             invoice_path, invoice_original, invoice_mimetype = save_invoice_file(invoice_file, DEPARTMENT)
         except ValueError as e:
@@ -186,25 +173,31 @@ def create_entry():
         return jsonify({"message": "Validation failed.", "errors": errors}), 400
 
     # Calculate totals
-    base_amount = items_total
-    gst_tax_amount = round(base_amount * gst_tax_percent / 100, 2)
-    total_amount = round(base_amount + gst_tax_amount, 2)
+    if is_travel_expense:
+        base_amount = float(amount)
+        gst_tax_percent = 0.0
+        gst_tax_amount = 0.0
+        total_amount = base_amount
+        clean_items = [] # Ensure no items are attached
+    else:
+        base_amount = items_total
+        gst_tax_amount = round(base_amount * gst_tax_percent / 100, 2)
+        total_amount = round(base_amount + gst_tax_amount, 2)
 
     entry = FinanceEntry(
         department=DEPARTMENT,
         entry_type=entry_type,
         category=category,
-        generated_by=generated_by,
-        revenue_type=revenue_type if CONFIG["show_revenue_type"] else None,
-        client_name=client_name if CONFIG["show_client_name"] else None,
-        gst_number=gst_number if CONFIG["show_gst_number"] else None,
-        tax_invoice_number=tax_invoice_number if CONFIG["show_tax_invoice_number"] else None,
+        generated_by=generated_by if not is_travel_expense else None,
+        revenue_type=revenue_type if not is_travel_expense else None,
+        client_name=client_name,
+        gst_number=gst_number if not is_travel_expense else None,
+        tax_invoice_number=tax_invoice_number if not is_travel_expense else None,
         amount=total_amount,
         base_amount=base_amount,
         gst_tax_percent=gst_tax_percent,
         gst_tax_amount=gst_tax_amount,
         employee_name=employee_name,
-        purpose=purpose,
         vehicle_type=vehicle_type,
         remarks=remarks,
         entry_date=entry_date,
@@ -213,62 +206,38 @@ def create_entry():
         invoice_mimetype=invoice_mimetype,
         created_by_id=get_jwt_identity(),
     )
-
-    for item in clean_items:
-        entry.items.append(FinanceEntryItem(**item))
+    
+    if not is_travel_expense:
+        for item in clean_items:
+            entry.items.append(FinanceEntryItem(**item))
 
     db.session.add(entry)
     db.session.commit()
     return jsonify({"message": "Entry created.", "entry": entry.to_dict()}), 201
+
 @medtech_bp.route("/entries", methods=["GET"])
 @role_required("MedTech")
 def list_entries():
-    # 1. Native MedTech entries
     query = FinanceEntry.query.filter_by(department=DEPARTMENT)
     query = _apply_date_filters(query)
-
-    # 2. Salary entries from Corporate with exec_department = MedTech
-    salary_query = FinanceEntry.query.filter(
-        FinanceEntry.department == "Corporate",
-        FinanceEntry.exec_department == "MedTech",
-        FinanceEntry.entry_type == "Expenses",
-        FinanceEntry.category == "Payroll Salaries"
-    )
-    start_date = _parse_date(request.args.get("start_date"))
-    end_date = _parse_date(request.args.get("end_date"))
-    if start_date:
-        salary_query = salary_query.filter(FinanceEntry.entry_date >= start_date)
-    if end_date:
-        salary_query = salary_query.filter(FinanceEntry.entry_date <= end_date)
-
-    # Combine both
-    combined_query = query.union(salary_query)
-
     entry_type = request.args.get("entry_type")
     if entry_type in ENTRY_TYPES:
-        combined_query = combined_query.filter(FinanceEntry.entry_type == entry_type)
-
+        query = query.filter(FinanceEntry.entry_type == entry_type)
     category = request.args.get("category")
     if category:
-        combined_query = combined_query.filter(FinanceEntry.category == category)
-
+        query = query.filter(FinanceEntry.category == category)
     search = request.args.get("search")
     if search:
         like = f"%{search}%"
-        combined_query = combined_query.filter(
-            or_(
-                FinanceEntry.generated_by.ilike(like),
-                FinanceEntry.client_name.ilike(like),
-                FinanceEntry.gst_number.ilike(like),
-                FinanceEntry.tax_invoice_number.ilike(like),
-                FinanceEntry.remarks.ilike(like),
-                FinanceEntry.employee_name.ilike(like),
-            )
+        query = query.filter(
+            (FinanceEntry.generated_by.ilike(like))
+            | (FinanceEntry.client_name.ilike(like))
+            | (FinanceEntry.gst_number.ilike(like))
+            | (FinanceEntry.tax_invoice_number.ilike(like))
+            | (FinanceEntry.remarks.ilike(like))
         )
-
-    combined_query = combined_query.order_by(FinanceEntry.entry_date.desc(), FinanceEntry.id.desc())
-    return jsonify({"entries": [e.to_dict() for e in combined_query.all()]}), 200
-
+    query = query.order_by(FinanceEntry.entry_date.desc(), FinanceEntry.id.desc())
+    return jsonify({"entries": [e.to_dict() for e in query.all()]}), 200
 
 @medtech_bp.route("/entries/<int:entry_id>", methods=["PUT"])
 @role_required("MedTech")
@@ -277,21 +246,23 @@ def update_entry(entry_id):
     if not entry:
         return jsonify({"message": "Entry not found."}), 404
 
-    data = request.form
-    new_type = data.get("entry_type", entry.entry_type)
-    allowed_categories = CONFIG["categories"].get(new_type, [])
+    # Support both JSON and form-data
+    if request.is_json:
+        data = request.get_json() or {}
+    else:
+        data = request.form
 
     errors = []
 
-    # Block changing category to Payroll Salaries
-    new_category = data.get("category", entry.category)
-    if new_category == "Payroll Salaries" and entry.category != "Payroll Salaries":
-        errors.append("Salaries must be entered by Corporate Management only.")
-
+    # Basic field updates
     if "entry_type" in data and data["entry_type"] in ENTRY_TYPES:
         entry.entry_type = data["entry_type"]
-    if "category" in data and data["category"] in allowed_categories:
-        entry.category = data["category"]
+    if "category" in data:
+        allowed_categories = CONFIG["categories"].get(entry.entry_type, [])
+        if data["category"] in allowed_categories:
+            entry.category = data["category"]
+        else:
+            errors.append(f"category must be one of: {', '.join(allowed_categories)}")
     if "generated_by" in data and data["generated_by"].strip():
         entry.generated_by = data["generated_by"].strip()
     if "revenue_type" in data and data["revenue_type"] in CONFIG["revenue_types"]:
@@ -303,39 +274,49 @@ def update_entry(entry_id):
     if "tax_invoice_number" in data:
         entry.tax_invoice_number = (data["tax_invoice_number"] or "").strip() or None
     if "remarks" in data:
-        entry.remarks = (data["remarks"] or "").strip()
+        entry.remarks = data["remarks"]
     if "entry_date" in data:
         parsed = _parse_date(data["entry_date"])
         if parsed:
             entry.entry_date = parsed
-
-    # New fields
     if "employee_name" in data:
         entry.employee_name = (data["employee_name"] or "").strip() or None
-    if "purpose" in data:
-        entry.purpose = (data["purpose"] or "").strip() or None
     if "vehicle_type" in data:
         entry.vehicle_type = (data["vehicle_type"] or "").strip() or None
 
-    # Items update
+    # --- Amount handling (NEW) ---
+    amount_from_request = data.get("amount")
+    if amount_from_request is not None and amount_from_request != "":
+        try:
+            base_amount = float(amount_from_request)
+            if base_amount < 0:
+                errors.append("amount must be >= 0.")
+        except (TypeError, ValueError):
+            errors.append("amount must be a valid number.")
+            base_amount = float(entry.base_amount) if entry.base_amount is not None else 0.0
+    else:
+        base_amount = float(entry.base_amount) if entry.base_amount is not None else 0.0
+
+    # --- Items handling (if items are sent, they override the amount) ---
     items_changed = "items" in data
     if items_changed:
-        try:
-            items_data = json.loads(data.get("items") or "[]")
-        except (TypeError, ValueError):
-            items_data = []
-            errors.append("Items data could not be read.")
+        # Parse items: JSON already list; form-data is JSON string
+        if request.is_json:
+            items_data = data.get("items") or []
+        else:
+            try:
+                items_data = json.loads(data.get("items") or "[]")
+            except (TypeError, ValueError):
+                items_data = []
+                errors.append("Items data could not be read.")
         clean_items, items_total, item_errors = _validate_items(items_data)
         errors.extend(item_errors)
         if not item_errors:
+            # Replace items
             entry.items = [FinanceEntryItem(**item) for item in clean_items]
-            base_amount = items_total
-        else:
-            base_amount = float(entry.base_amount) if entry.base_amount is not None else float(entry.amount or 0)
-    else:
-        base_amount = float(entry.base_amount) if entry.base_amount is not None else float(entry.amount or 0)
+            base_amount = items_total  # override
 
-    # GST update
+    # --- GST handling ---
     if "gst_tax_percent" in data:
         gst_tax_percent, gst_tax_error = _parse_gst_tax_percent(data.get("gst_tax_percent"))
         if gst_tax_error:
@@ -343,22 +324,24 @@ def update_entry(entry_id):
     else:
         gst_tax_percent = float(entry.gst_tax_percent) if entry.gst_tax_percent is not None else 0.0
 
-    invoice_file = request.files.get("invoice")
-    if CONFIG["show_invoice"] and invoice_file and invoice_file.filename:
-        try:
-            new_path, new_original, new_mimetype = save_invoice_file(invoice_file, DEPARTMENT)
-        except ValueError as e:
-            errors.append(str(e))
-        else:
+    # --- Invoice file handling (only for form-data) ---
+    if request.files:
+        invoice_file = request.files.get("invoice")
+        if invoice_file and invoice_file.filename:
+            try:
+                new_path, new_original, new_mimetype = save_invoice_file(invoice_file, DEPARTMENT)
+            except ValueError as e:
+                errors.append(str(e))
+            else:
+                delete_invoice_file(entry.invoice_filename)
+                entry.invoice_filename = new_path
+                entry.invoice_original_name = new_original
+                entry.invoice_mimetype = new_mimetype
+        elif data.get("remove_invoice") == "true":
             delete_invoice_file(entry.invoice_filename)
-            entry.invoice_filename = new_path
-            entry.invoice_original_name = new_original
-            entry.invoice_mimetype = new_mimetype
-    elif data.get("remove_invoice") == "true":
-        delete_invoice_file(entry.invoice_filename)
-        entry.invoice_filename = None
-        entry.invoice_original_name = None
-        entry.invoice_mimetype = None
+            entry.invoice_filename = None
+            entry.invoice_original_name = None
+            entry.invoice_mimetype = None
 
     if errors:
         return jsonify({"message": "Validation failed.", "errors": errors}), 400
@@ -373,7 +356,6 @@ def update_entry(entry_id):
     db.session.commit()
     return jsonify({"message": "Entry updated.", "entry": entry.to_dict()}), 200
 
-
 @medtech_bp.route("/entries/<int:entry_id>", methods=["DELETE"])
 @role_required("MedTech")
 def delete_entry(entry_id):
@@ -385,47 +367,22 @@ def delete_entry(entry_id):
     db.session.commit()
     return jsonify({"message": "Entry deleted."}), 200
 
-
 @medtech_bp.route("/summary", methods=["GET"])
 @role_required("MedTech")
 def finance_summary():
-    # 1. Native MedTech entries
-    query = FinanceEntry.query.filter_by(department=DEPARTMENT)
-    query = _apply_date_filters(query)
-
-    # 2. Salary entries from Corporate with exec_department = MedTech
-    salary_query = FinanceEntry.query.filter(
-        FinanceEntry.department == "Corporate",
-        FinanceEntry.exec_department == "MedTech",
-        FinanceEntry.entry_type == "Expenses",
-        FinanceEntry.category == "Payroll Salaries"
-    )
-    start_date = _parse_date(request.args.get("start_date"))
-    end_date = _parse_date(request.args.get("end_date"))
-    if start_date:
-        salary_query = salary_query.filter(FinanceEntry.entry_date >= start_date)
-    if end_date:
-        salary_query = salary_query.filter(FinanceEntry.entry_date <= end_date)
-
-    combined_query = query.union(salary_query)
-
-    entries = combined_query.all()
-
+    entries = _apply_date_filters(FinanceEntry.query.filter_by(department=DEPARTMENT)).all()
     total_income = sum(float(e.amount) for e in entries if e.entry_type == "Income")
     total_expenses = sum(float(e.amount) for e in entries if e.entry_type == "Expenses")
-
     by_date = {}
     for e in entries:
         key = e.entry_date.isoformat()
         by_date.setdefault(key, {"date": key, "income": 0, "expenses": 0})
         by_date[key]["income" if e.entry_type == "Income" else "expenses"] += float(e.amount)
     trend = sorted(by_date.values(), key=lambda x: x["date"])
-
     by_category = {}
     for e in entries:
         by_category.setdefault(e.category, {"category": e.category, "amount": 0})
         by_category[e.category]["amount"] += float(e.amount)
-
     return jsonify({
         "department": DEPARTMENT,
         "total_income": total_income,

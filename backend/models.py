@@ -23,8 +23,6 @@ DEPARTMENT_CONFIG = {
                 "Supplies and Equipments",
                 "Legal Governance",
                 "Guest Concierge",
-                # "Consulting",   # removed
-                # "Management Fees",   # removed
                 "Office Management",
                 "Other"
             ]
@@ -40,7 +38,6 @@ DEPARTMENT_CONFIG = {
         "show_invoice": True,
         "show_gst_tax": False,
         "show_tax_invoice_number": False,
-        # No is_salary_category – IT does not allow salary entry
     },
 
     "IT Sales": {
@@ -50,11 +47,11 @@ DEPARTMENT_CONFIG = {
                 "Consulting",
                 "Support & Maintenance",
                 "Service Revenue",
-                "Internal allocations",   # <-- NEW category added
+                "Internal allocations",
                 "Others"
             ],
             "Expenses": [
-                "Payroll Salaries",            # visible but disabled
+                "Payroll Salaries",
                 "Travel & Entertainment",
                 "Marketing Expenses",
                 "Assets & Infra Cost",
@@ -83,7 +80,6 @@ DEPARTMENT_CONFIG = {
         "show_invoice": True,
         "show_gst_tax": True,
         "show_tax_invoice_number": True,
-        # No is_salary_category – IT Sales does not allow salary entry
     },
 
     "Dental": {
@@ -140,7 +136,6 @@ DEPARTMENT_CONFIG = {
         "show_invoice": False,
         "show_gst_tax": False,
         "show_tax_invoice_number": False,
-        # No is_salary_category – CareDx does not allow salary entry
     },
 
     "PCM": {
@@ -154,7 +149,7 @@ DEPARTMENT_CONFIG = {
                 "Regulatory and Risk Management"
             ],
             "Expenses": [
-                "Payroll Salaries",            # visible but disabled
+                "Payroll Salaries",
                 "Travel & Entertainment",
                 "Marketing Expenses",
                 "Assets & Infra Cost",
@@ -166,8 +161,6 @@ DEPARTMENT_CONFIG = {
                 "Legal Governance",
                 "Guest Concierge",
                 "Office Management",
-                # "Consulting",   # removed
-                # "Management Fees",   # removed
                 "Other"
             ]
         },
@@ -182,14 +175,13 @@ DEPARTMENT_CONFIG = {
         "show_invoice": False,
         "show_gst_tax": False,
         "show_tax_invoice_number": False,
-        # No is_salary_category – PCM does not allow salary entry
     },
 
     "MedTech": {
         "categories": {
             "Income": ["B2B Revenue", "B2C Revenue"],
             "Expenses": [
-                "Payroll Salaries",            # visible but disabled
+                "Payroll Salaries",
                 "Travel & Entertainment",
                 "Marketing Expenses",
                 "Assets & Infra Cost",
@@ -201,8 +193,6 @@ DEPARTMENT_CONFIG = {
                 "Legal Governance",
                 "Guest Concierge",
                 "Office Management",
-                # "Consulting",   # removed
-                # "Management Fees",   # removed
                 "Other"
             ],
         },
@@ -217,7 +207,6 @@ DEPARTMENT_CONFIG = {
         "show_invoice": True,
         "show_gst_tax": True,
         "show_tax_invoice_number": True,
-        # No is_salary_category – MedTech does not allow salary entry
     },
 
     "Corporate": {
@@ -259,7 +248,7 @@ DEPARTMENT_CONFIG = {
 
     "Adminstrationfunctionalunit": {
         "categories": {
-            "Income": ["Other"],   # Internal Allocations removed
+            "Income": ["Other"],
             "Expenses": [
                 "Travel & Entertainment",
                 "Marketing Expenses",
@@ -272,7 +261,6 @@ DEPARTMENT_CONFIG = {
                 "Legal Governance",
                 "Guest Concierge",
                 "Office Management",
-                # "Consulting",   # removed
                 "Management Fees",
                 "Other"
             ],
@@ -288,7 +276,6 @@ DEPARTMENT_CONFIG = {
         "show_invoice": False,
         "show_gst_tax": False,
         "show_tax_invoice_number": False,
-        # No salary category
     },
 
     "ResearchDevelopment": {
@@ -313,7 +300,6 @@ DEPARTMENT_CONFIG = {
         "show_invoice": False,
         "show_gst_tax": False,
         "show_tax_invoice_number": False,
-        # No salary category
     },
 }
 
@@ -378,6 +364,8 @@ class FinanceEntry(db.Model):
     vehicle_type = db.Column(db.String(100), nullable=True)
     purpose = db.Column(db.Text, nullable=True)
 
+    team = db.Column(db.String(100), nullable=True)   # NEW
+
     remarks = db.Column(db.Text, nullable=True)
 
     invoice_filename = db.Column(db.String(255), nullable=True)
@@ -424,6 +412,7 @@ class FinanceEntry(db.Model):
             "allowance_amount": float(self.allowance_amount) if self.allowance_amount is not None else None,
             "vehicle_type": self.vehicle_type,
             "purpose": self.purpose,
+            "team": self.team,   # NEW
             "remarks": self.remarks,
             "invoice_url": f"/files/invoices/{self.invoice_filename}" if self.invoice_filename else None,
             "invoice_original_name": self.invoice_original_name,

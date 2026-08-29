@@ -76,6 +76,9 @@ def create_entry():
     purpose = (data.get("purpose") or "").strip() or None
     vehicle_type = (data.get("vehicle_type") or "").strip() or None
 
+    # Team field
+    team = (data.get("team") or "").strip() or None   # <-- ADDED
+
     errors = []
 
     # Block salary category creation in IT Sales
@@ -121,7 +124,7 @@ def create_entry():
                 gst_tax_amount = round(amount * gst_tax_percent / 100, 2)
                 total_amount = amount + gst_tax_amount
         except ValueError:
-            errors.append("GST tax percent must be a number.")
+            errors.append("GST tax percent must be number.")
 
     # Remarks mandatory for all IT Sales expense entries (except salary, which is blocked)
     if entry_type == "Expenses" and category != "Payroll Salaries" and not remarks:
@@ -148,7 +151,7 @@ def create_entry():
         gst_number=gst_number if CONFIG["show_gst_number"] else None,
         amount=total_amount,
         base_amount=base_amount,
-        gst_tax_percent=gst_tax_percent,  # Now either a float or None
+        gst_tax_percent=gst_tax_percent,
         gst_tax_amount=gst_tax_amount,
         tax_invoice_number=tax_invoice_number if CONFIG["show_tax_invoice_number"] else None,
         remarks=remarks,
@@ -160,6 +163,7 @@ def create_entry():
         employee_name=employee_name,
         purpose=purpose,
         vehicle_type=vehicle_type,
+        team=team,   # <-- ADDED
     )
     db.session.add(entry)
     db.session.commit()
@@ -208,6 +212,7 @@ def list_entries():
                 FinanceEntry.client_name.ilike(like),
                 FinanceEntry.remarks.ilike(like),
                 FinanceEntry.employee_name.ilike(like),
+                FinanceEntry.team.ilike(like),   # <-- ADDED search on team
             )
         )
 
@@ -287,6 +292,10 @@ def update_entry(entry_id):
         entry.purpose = (data["purpose"] or "").strip() or None
     if "vehicle_type" in data:
         entry.vehicle_type = (data["vehicle_type"] or "").strip() or None
+
+    # Team field
+    if "team" in data:   # <-- ADDED
+        entry.team = (data["team"] or "").strip() or None
 
     invoice_file = request.files.get("invoice")
     if CONFIG["show_invoice"] and invoice_file and invoice_file.filename:

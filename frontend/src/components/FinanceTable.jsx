@@ -43,6 +43,7 @@ export default function FinanceTable({
     );
   }
 
+  // Conditionally show columns based on data presence
   const showClientName = entries.some((entry) => entry?.client_name);
   const showGstNumber = entries.some((entry) => entry?.gst_number);
   const showItems = entries.some((entry) => Array.isArray(entry?.items) && entry.items.length > 0);
@@ -56,6 +57,7 @@ export default function FinanceTable({
   const showEmployeeName = entries.some((entry) => entry?.employee_name);
   const showSalaryAmount = entries.some((entry) => entry?.salary_amount !== null && entry?.salary_amount !== undefined);
   const showAllowanceAmount = entries.some((entry) => entry?.allowance_amount !== null && entry?.allowance_amount !== undefined);
+  const showTeam = entries.some((entry) => entry?.team); // NEW
 
   return (
     <div className="table-responsive">
@@ -77,6 +79,7 @@ export default function FinanceTable({
             {showEmployeeName && <th>Employee</th>}
             {showSalaryAmount && <th className="text-right">Salary</th>}
             {showAllowanceAmount && <th className="text-right">Allowance</th>}
+            {showTeam && <th>Team</th>}   {/* NEW */}
             <th className="text-right">Amount</th>
             <th>Remarks</th>
             {showInvoice && <th>Invoice</th>}
@@ -117,6 +120,7 @@ export default function FinanceTable({
                 {showEmployeeName && <td>{entry.employee_name || "—"}</td>}
                 {showSalaryAmount && <td className="text-right">{formatCurrency(entry.salary_amount)}</td>}
                 {showAllowanceAmount && <td className="text-right">{formatCurrency(entry.allowance_amount)}</td>}
+                {showTeam && <td>{entry.team || "—"}</td>}   {/* NEW */}
                 <td className="text-right" style={{ fontWeight: 600 }}>
                   {formatCurrency(entry.amount)}
                 </td>
@@ -133,24 +137,24 @@ export default function FinanceTable({
                   </td>
                 )}
                 <td>
-  <div className="actions-cell">
-    {onView && (
-      <button type="button" onClick={() => onView(entry)} className="btn-icon" title="View">
-        <Eye size={15} />
-      </button>
-    )}
-    {onEdit && (
-      <button type="button" onClick={() => onEdit(entry)} className="btn-icon" title="Edit">
-        <Pencil size={15} />
-      </button>
-    )}
-    {onDelete && (
-      <button type="button" onClick={() => onDelete(entry)} className="btn-icon btn-icon--danger" title="Delete">
-        <Trash2 size={15} />
-      </button>
-    )}
-  </div>
-</td>
+                  <div className="actions-cell">
+                    {onView && (
+                      <button type="button" onClick={() => onView(entry)} className="btn-icon" title="View">
+                        <Eye size={15} />
+                      </button>
+                    )}
+                    {onEdit && (
+                      <button type="button" onClick={() => onEdit(entry)} className="btn-icon" title="Edit">
+                        <Pencil size={15} />
+                      </button>
+                    )}
+                    {onDelete && (
+                      <button type="button" onClick={() => onDelete(entry)} className="btn-icon btn-icon--danger" title="Delete">
+                        <Trash2 size={15} />
+                      </button>
+                    )}
+                  </div>
+                </td>
               </tr>
             );
           })}

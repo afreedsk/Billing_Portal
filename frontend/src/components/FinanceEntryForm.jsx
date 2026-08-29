@@ -106,7 +106,7 @@ const IT_CATEGORY_FIELDS = {
   "Other": { showEmployeeName: true, showVehicleType: false, labelName: "Name/Item", showPurpose: true },
 };
 
-// Mapping for IT Sales category fields
+// Mapping for IT Sales category fields (preserve existing config)
 const IT_SALES_CATEGORY_FIELDS = {
   "Travel & Entertainment": { showEmployeeName: true, showVehicleType: true, labelName: "Employee/Person Name", labelVehicle: "Transport/Travel Type", showPurpose: true },
   "Marketing Expenses": { showEmployeeName: true, showVehicleType: false, labelName: "Employee/Person Name", showPurpose: true },
@@ -196,6 +196,7 @@ export default function FinanceEntryForm({
     salary_amount: "",
     allowance_amount: "",
     vehicle_type: "",
+    team: "",
   });
 
   const [form, setForm] = useState(createEmptyForm());
@@ -238,56 +239,72 @@ export default function FinanceEntryForm({
   // Determine if using category-specific fields (skip items validation)
   const usingCategoryFields = showOfficeFields || showITFields || showITSalesFields || showMedTechFields || showPCMFields;
 
-  useEffect(() => {
-    if (!open || !options) return;
+ useEffect(() => {
+  if (!open) return;
 
-    if (editingEntry) {
-      const categoryList = options?.categories?.[editingEntry.entry_type] || [];
-      const isCustomCategory = categoryList.includes("Others") && !categoryList.includes(editingEntry.category);
+  // Helper to populate the form from an entry
+  const populateForm = (entry) => {
+    const categoryList = options?.categories?.[entry.entry_type] || [];
+    const isCustomCategory = categoryList.includes("Others") && !categoryList.includes(entry.category);
 
-      setForm({
-        entry_type: editingEntry.entry_type || "Income",
-        category: isCustomCategory ? "Others" : editingEntry.category || "",
-        sub_category: editingEntry.sub_category || "",
-        generated_by: editingEntry.generated_by || "",
-        revenue_type: editingEntry.revenue_type || options?.revenue_types?.[0] || "",
-        patient_name: editingEntry.patient_name || "",
-        patient_place: editingEntry.patient_place || "",
-        client_name: editingEntry.client_name || "",
-        gst_number: editingEntry.gst_number || "",
-        gst_tax_percent: editingEntry.gst_tax_percent !== undefined && editingEntry.gst_tax_percent !== null ? String(editingEntry.gst_tax_percent) : "",
-        tax_invoice_number: editingEntry.tax_invoice_number || "",
-        amount: editingEntry.amount !== undefined && editingEntry.amount !== null ? String(editingEntry.amount) : "",
-        remarks: editingEntry.remarks || "",
-        entry_date: editingEntry.entry_date || today(),
-        exec_department: editingEntry.exec_department || "",
-        employee_name: editingEntry.employee_name || "",
-        salary_amount: editingEntry.salary_amount !== undefined && editingEntry.salary_amount !== null ? String(editingEntry.salary_amount) : "",
-        allowance_amount: editingEntry.allowance_amount !== undefined && editingEntry.allowance_amount !== null ? String(editingEntry.allowance_amount) : "",
-        vehicle_type: editingEntry.vehicle_type || "",
-      });
-      setOtherCategory(isCustomCategory ? editingEntry.category : "");
-      if (Array.isArray(editingEntry.items) && editingEntry.items.length > 0) {
-        setItems(editingEntry.items.map((item) => ({
-          _key: nextItemKey(),
-          item_name: item.item_name || "",
-          quantity: String(item.quantity ?? "1"),
-          unit_price: String(item.unit_price ?? ""),
-        })));
-      } else {
-        setItems([emptyItem()]);
-      }
-      setEmployees([emptyEmployee()]);
+    setForm({
+      entry_type: entry.entry_type || "Income",
+      category: isCustomCategory ? "Others" : entry.category || "",
+      sub_category: entry.sub_category || "",
+      generated_by: entry.generated_by || "",
+      revenue_type: entry.revenue_type || options?.revenue_types?.[0] || "",
+      patient_name: entry.patient_name || "",
+      patient_place: entry.patient_place || "",
+      client_name: entry.client_name || "",
+      gst_number: entry.gst_number || "",
+      gst_tax_percent: entry.gst_tax_percent !== undefined && entry.gst_tax_percent !== null ? String(entry.gst_tax_percent) : "",
+      tax_invoice_number: entry.tax_invoice_number || "",
+      amount: entry.amount !== undefined && entry.amount !== null ? String(entry.amount) : "",
+      remarks: entry.remarks || "",
+      entry_date: entry.entry_date || today(),
+      exec_department: entry.exec_department || "",
+      employee_name: entry.employee_name || "",
+      salary_amount: entry.salary_amount !== undefined && entry.salary_amount !== null ? String(entry.salary_amount) : "",
+      allowance_amount: entry.allowance_amount !== undefined && entry.allowance_amount !== null ? String(entry.allowance_amount) : "",
+      vehicle_type: entry.vehicle_type || "",
+      team: entry.team || "",
+    });
+    setOtherCategory(isCustomCategory ? entry.category : "");
+    if (Array.isArray(entry.items) && entry.items.length > 0) {
+      setItems(entry.items.map((item) => ({
+        _key: nextItemKey(),
+        item_name: item.item_name || "",
+        quantity: String(item.quantity ?? "1"),
+        unit_price: String(item.unit_price ?? ""),
+      })));
     } else {
-      setForm(createEmptyForm());
-      setOtherCategory("");
       setItems([emptyItem()]);
-      setEmployees([emptyEmployee()]);
     }
-
+    setEmployees([emptyEmployee()]);
     setInvoiceFile(null);
     setRemoveInvoice(false);
-  }, [editingEntry, open, options]);
+  };
+
+  // If we have editingEntry, populate immediately (even without options)
+  if (editingEntry) {
+    populateForm(editingEntry);
+  } else {
+    // New entry: reset to empty
+    setForm(createEmptyForm());
+    setOtherCategory("");
+    setItems([emptyItem()]);
+    setEmployees([emptyEmployee()]);
+    setInvoiceFile(null);
+    setRemoveInvoice(false);
+  }
+
+  // When options finally load, re‑populate to pick up any dropdown defaults
+  // (but only if we are still editing the same entry)
+  if (options && editingEntry) {
+    // Re‑run to set correct revenue_type, etc.
+    populateForm(editingEntry);
+  }
+}, [editingEntry, open, options]);
 
   if (!open || !options) return null;
 
@@ -520,6 +537,11 @@ export default function FinanceEntryForm({
         toast.error("Please enter a valid amount.");
         return;
       }
+      // Additional validation for Income: generated_by is required
+      if (form.entry_type === "Income" && !form.generated_by.trim()) {
+        toast.error("Please enter the employee name (Generated By) for Income entries.");
+        return;
+      }
     }
 
     // MedTech specific validations (excluding salary)
@@ -642,6 +664,9 @@ export default function FinanceEntryForm({
           formData.append("employee_name", form.employee_name || "");
           formData.append("purpose", form.purpose || "");
           formData.append("vehicle_type", form.vehicle_type || "");
+          formData.append("client_name", form.client_name || "");
+          formData.append("gst_number", form.gst_number || "");
+          formData.append("generated_by", form.generated_by || "");   // ADDED
         }
         if (isMedTech && showMedTechFields) {
           formData.append("employee_name", form.employee_name || "");
@@ -657,13 +682,18 @@ export default function FinanceEntryForm({
           formData.append("items", JSON.stringify(cleanItems));
           formData.append("amount", itemsTotal);
         } else {
-          formData.append("amount", form.amount);
+          formData.append("amount", parseFloat(form.amount) || 0);
         }
         if (invoiceFile) formData.append("invoice", invoiceFile);
+        // Include team for IT Sales
+        if (isITSales) {
+          formData.append("team", form.team || "");
+        }
         body = formData;
         config = { headers: { 'Content-Type': 'multipart/form-data' } };
       } else {
         body = { ...form };
+        body.amount = parseFloat(form.amount) || 0;   // ensure it's a number
         if (isOthersCategory) body.other_category = otherCategory.trim();
         if (isOfficeAdmin) {
           body.employee_name = form.employee_name || null;
@@ -678,6 +708,7 @@ export default function FinanceEntryForm({
           body.employee_name = form.employee_name || null;
           body.purpose = form.purpose || null;
           body.vehicle_type = form.vehicle_type || null;
+          // client_name, gst_number, generated_by already in form
         }
         if (isMedTech && showMedTechFields) {
           body.employee_name = form.employee_name || null;
@@ -688,6 +719,10 @@ export default function FinanceEntryForm({
           body.employee_name = form.employee_name || null;
           body.purpose = form.purpose || null;
           body.vehicle_type = form.vehicle_type || null;
+        }
+        // Include team for IT Sales
+        if (isITSales) {
+          body.team = form.team || null;
         }
         if (!options.show_generated_by) delete body.generated_by;
         if (!options.show_revenue_type) delete body.revenue_type;
@@ -1081,7 +1116,7 @@ export default function FinanceEntryForm({
     );
   };
 
-  // Render function for IT Sales category fields
+  // ========== UPDATED renderITSalesFields with generated_by ==========
   const renderITSalesFields = () => {
     if (!showITSalesFields) return null;
     const config = itSalesFieldConfig;
@@ -1111,6 +1146,49 @@ export default function FinanceEntryForm({
             />
           </div>
         )}
+
+        {/* generated_by field - required for Income */}
+        <div className="form-group">
+          <label className="form-label">Generated By {form.entry_type === "Income" && <span style={{ color: "red" }}>*</span>}</label>
+          <input
+            name="generated_by"
+            value={form.generated_by || ""}
+            onChange={handleChange}
+            placeholder="Enter employee name"
+            className="form-control"
+          />
+        </div>
+
+        {/* Client Name and GST Number fields */}
+        <div className="form-row">
+          {options.show_client_name && (
+            <div className="form-group">
+              <label className="form-label">Client Name</label>
+              <input
+                name="client_name"
+                value={form.client_name || ""}
+                onChange={handleChange}
+                placeholder="Enter the client name"
+                className="form-control"
+              />
+            </div>
+          )}
+          {options.show_gst_number && (
+            <div className="form-group">
+              <label className="form-label">
+                GST Number {gstRequired ? `(required for ${form.category})` : "(optional)"}
+              </label>
+              <input
+                name="gst_number"
+                value={form.gst_number || ""}
+                onChange={handleChange}
+                placeholder="e.g. 22AAAAA0000A1Z5"
+                className="form-control"
+              />
+            </div>
+          )}
+        </div>
+
         <div className="form-row">
           <div className="form-group">
             <label className="form-label">Amount (₹)</label>
@@ -1163,6 +1241,7 @@ export default function FinanceEntryForm({
       </>
     );
   };
+  // =============================================================
 
   // Render function for MedTech category fields
   const renderMedTechFields = () => {
@@ -1371,6 +1450,20 @@ export default function FinanceEntryForm({
             <div className="form-group">
               <label className="form-label">Other Category Name</label>
               <input value={otherCategory} onChange={(e) => setOtherCategory(e.target.value)} placeholder="Enter a category name" className="form-control" />
+            </div>
+          )}
+
+          {/* Team field for IT Sales */}
+          {isITSales && !isITSalesSalaryCategory && (
+            <div className="form-group">
+              <label className="form-label">Team</label>
+              <input
+                name="team"
+                value={form.team || ""}
+                onChange={handleChange}
+                placeholder="e.g. Sales Team, Enterprise Sales, B2B Team"
+                className="form-control"
+              />
             </div>
           )}
 
@@ -1596,7 +1689,7 @@ export default function FinanceEntryForm({
             showITFields ? renderITFields() : renderStandardFields()
           )}
 
-          {/* IT SALES FIELDS (excluding salary) – fallback to standard fields */}
+          {/* IT SALES FIELDS (excluding salary) – uses updated renderITSalesFields */}
           {isITSales && !isITSalesSalaryCategory && (
             showITSalesFields ? renderITSalesFields() : renderStandardFields()
           )}
