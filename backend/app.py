@@ -38,7 +38,6 @@ def create_app():
     from routes.adminfunctionalunit import adminfunctionalunit_bp
     from routes.researchdevelopment import researchdevelopment_bp
     from routes.itsales import itsales_bp   # <-- make sure this import works
-    from routes.salesenterprise import salesenterprise_bp
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(it_bp)
@@ -51,8 +50,7 @@ def create_app():
     app.register_blueprint(adminfunctionalunit_bp)
     app.register_blueprint(researchdevelopment_bp)
     app.register_blueprint(itsales_bp)      # <-- make sure this line is present
-    app.register_blueprint(salesenterprise_bp)
-    
+
     @app.route("/api/health", methods=["GET"])
     def health():
         return jsonify({"status": "ok"}), 200
