@@ -1,26 +1,33 @@
+# backend/app.py
+import sys
+import traceback
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 from flask_jwt_extended import JWTManager
 
 from config import Config
-from models import db
+from models import db, migrate_corporate_categories
 
 
 def create_app():
     app = Flask(__name__)
     app.config.from_object(Config)
 
+    app.config["REDIS_CLIENT"] = Config.get_redis()
+
     db.init_app(app)
+
+    with app.app_context():
+        migrate_corporate_categories()
+
     JWTManager(app)
 
-    # Global CORS (for preflight)
-    CORS(app, resources={r"/api/*": {"origins": app.config["FRONTEND_ORIGIN"]}}, supports_credentials=True)
+    # CORS – allow all origins in development
+    CORS(app, resources={r"/api/*": {"origins": "*"}}, supports_credentials=True)
 
-    # Ensure CORS headers on ALL responses (including errors)
     @app.after_request
     def after_request(response):
-        origin = app.config.get("FRONTEND_ORIGIN", "http://localhost:5173")
-        response.headers.add('Access-Control-Allow-Origin', origin)
+        response.headers.add('Access-Control-Allow-Origin', '*')
         response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
         response.headers.add('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS')
         response.headers.add('Access-Control-Allow-Credentials', 'true')
@@ -37,7 +44,7 @@ def create_app():
     from routes.corporate import corporate_bp
     from routes.adminfunctionalunit import adminfunctionalunit_bp
     from routes.researchdevelopment import researchdevelopment_bp
-    from routes.itsales import itsales_bp   # <-- make sure this import works
+    from routes.itsales import itsales_bp
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(it_bp)
@@ -49,19 +56,22 @@ def create_app():
     app.register_blueprint(corporate_bp)
     app.register_blueprint(adminfunctionalunit_bp)
     app.register_blueprint(researchdevelopment_bp)
-    app.register_blueprint(itsales_bp)      # <-- make sure this line is present
+    app.register_blueprint(itsales_bp)
 
     @app.route("/api/health", methods=["GET"])
     def health():
         return jsonify({"status": "ok"}), 200
 
-    @app.errorhandler(404)
-    def not_found(e):
-        return jsonify({"message": "Route not found."}), 404
-
-    @app.errorhandler(500)
-    def server_error(e):
-        return jsonify({"message": "Internal server error."}), 500
+    # Global error handler to catch all exceptions and return JSON with CORS headers
+    @app.errorhandler(Exception)
+    def handle_exception(e):
+        # Log the error with traceback
+        print("🔴 Unhandled Exception:", file=sys.stderr)
+        traceback.print_exc()
+        return jsonify({
+            "message": "Internal server error",
+            "error": str(e) if app.debug else None
+        }), 500
 
     return app
 

@@ -1,3 +1,4 @@
+// frontend/src/components/FinanceEntryForm.jsx
 import React, { useEffect, useState } from "react";
 import { X, Plus, Trash2, FileText } from "lucide-react";
 import toast from "react-hot-toast";
@@ -72,91 +73,306 @@ const DEPARTMENTS_CONFIG = [
 
 // Mapping for Office Administration category fields
 const OFFICE_ADMIN_CATEGORY_FIELDS = {
-  "Travel & Entertainment": { showEmployeeName: true, showVehicleType: true, labelName: "Employee/Person Name", labelVehicle: "Transport/Travel Type", showPurpose: true },
-  "Marketing Expenses": { showEmployeeName: true, showVehicleType: false, labelName: "Employee/Person Name", showPurpose: true },
-  "Assets & Infra Cost": { showEmployeeName: true, showVehicleType: false, labelName: "Asset/Item Name", showPurpose: true },
+  "Travel & Entertainment (T&E)": { showEmployeeName: true, showVehicleType: true, labelName: "Employee/Person Name", labelVehicle: "Transport/Travel Type", showPurpose: true },
+  "Marketing": { showEmployeeName: true, showVehicleType: false, labelName: "Employee/Person Name", showPurpose: true },
+  "Office Supplies & Equipment": { showEmployeeName: true, showVehicleType: false, labelName: "Asset/Item Name", showPurpose: true },
   "General Operations": { showEmployeeName: true, showVehicleType: false, labelName: "Employee/Person Name", showPurpose: true },
   "Innovation": { showEmployeeName: true, showVehicleType: false, labelName: "Employee/Person Name", showPurpose: true },
-  "Miscellaneous Categories": { showEmployeeName: true, showVehicleType: false, labelName: "Employee/Person Name", showPurpose: true },
-  "Service Revenue": { showEmployeeName: true, showVehicleType: false, labelName: "Service Name", showPurpose: false },
-  "Supplies and Equipments": { showEmployeeName: true, showVehicleType: false, labelName: "Item/Equipment Name", showPurpose: true },
-  "Legal Governance": { showEmployeeName: true, showVehicleType: false, labelName: "Vendor/Person Name", showPurpose: true },
+  "Miscellaneous": { showEmployeeName: true, showVehicleType: false, labelName: "Employee/Person Name", showPurpose: true },
+  "Business Services Revenue": { showEmployeeName: true, showVehicleType: false, labelName: "Service Name", showPurpose: false },
+  "Supplies & Equipment": { showEmployeeName: true, showVehicleType: false, labelName: "Item/Equipment Name", showPurpose: true },
   "Guest Concierge": { showEmployeeName: true, showVehicleType: false, labelName: "Guest/Person Name", showPurpose: true },
-  "Office Management": { showEmployeeName: true, showVehicleType: false, labelName: "Employee/Person Name", showPurpose: true },
+  "Facilities & Overhead": { showEmployeeName: true, showVehicleType: false, labelName: "Employee/Person Name", showPurpose: true },
   "Consulting": { showEmployeeName: true, showVehicleType: false, labelName: "Consultant/Company Name", showPurpose: true },
   "Management Fees": { showEmployeeName: true, showVehicleType: false, labelName: "Vendor/Company Name", showPurpose: true },
   "Other": { showEmployeeName: true, showVehicleType: false, labelName: "Name/Item", showPurpose: true },
+  "Outsourced Services": { showEmployeeName: true, showVehicleType: false, labelName: "Vendor/Company Name", showPurpose: true },
+  "Events-Conferences-Training": { showEmployeeName: true, showVehicleType: false, labelName: "Event/Training Name", showPurpose: true },
 };
 
 // Mapping for IT Development category fields
 const IT_CATEGORY_FIELDS = {
-  "Travel & Entertainment": { showEmployeeName: true, showVehicleType: true, labelName: "Employee/Person Name", labelVehicle: "Transport/Travel Type", showPurpose: true },
-  "Marketing Expenses": { showEmployeeName: true, showVehicleType: false, labelName: "Employee/Person Name", showPurpose: true },
-  "Assets & Infra Cost": { showEmployeeName: true, showVehicleType: false, labelName: "Asset/Item Name", showPurpose: true },
+  "Travel & Entertainment (T&E)": { showEmployeeName: true, showVehicleType: true, labelName: "Employee/Person Name", labelVehicle: "Transport/Travel Type", showPurpose: true },
+  "Marketing": { showEmployeeName: true, showVehicleType: false, labelName: "Employee/Person Name", showPurpose: true },
+  "Supplies & Equipments": { showEmployeeName: true, showVehicleType: false, labelName: "Item/Equipment Name", showPurpose: true },
   "General Operations": { showEmployeeName: true, showVehicleType: false, labelName: "Employee/Person Name", showPurpose: true },
   "Innovation": { showEmployeeName: true, showVehicleType: false, labelName: "Employee/Person Name", showPurpose: true },
-  "Miscellaneous Categories": { showEmployeeName: true, showVehicleType: false, labelName: "Employee/Person Name", showPurpose: true },
-  "Service Revenue": { showEmployeeName: true, showVehicleType: false, labelName: "Service Name", showPurpose: false },
-  "Supplies and Equipments": { showEmployeeName: true, showVehicleType: false, labelName: "Item/Equipment Name", showPurpose: true },
-  "Legal Governance": { showEmployeeName: true, showVehicleType: false, labelName: "Vendor/Person Name", showPurpose: true },
+  "Miscellaneous": { showEmployeeName: true, showVehicleType: false, labelName: "Employee/Person Name", showPurpose: true },
+  "Business Services Revenue": { showEmployeeName: true, showVehicleType: false, labelName: "Service Name", showPurpose: false },
   "Guest Concierge": { showEmployeeName: true, showVehicleType: false, labelName: "Guest/Person Name", showPurpose: true },
-  "Office Management": { showEmployeeName: true, showVehicleType: false, labelName: "Employee/Person Name", showPurpose: true },
+  "Facilities & Overhead": { showEmployeeName: true, showVehicleType: false, labelName: "Employee/Person Name", showPurpose: true },
+  "Outsourced Services": { showEmployeeName: true, showVehicleType: false, labelName: "Vendor/Company Name", showPurpose: true },
+  "Events-Conferences-Training": { showEmployeeName: true, showVehicleType: false, labelName: "Event/Training Name", showPurpose: true },
   "Consulting": { showEmployeeName: true, showVehicleType: false, labelName: "Consultant/Company Name", showPurpose: true },
   "Management Fees": { showEmployeeName: true, showVehicleType: false, labelName: "Vendor/Company Name", showPurpose: true },
   "Other": { showEmployeeName: true, showVehicleType: false, labelName: "Name/Item", showPurpose: true },
 };
 
-// Mapping for IT Sales category fields (preserve existing config)
+// IT Sales category fields
 const IT_SALES_CATEGORY_FIELDS = {
-  "Travel & Entertainment": { showEmployeeName: true, showVehicleType: true, labelName: "Employee/Person Name", labelVehicle: "Transport/Travel Type", showPurpose: true },
-  "Marketing Expenses": { showEmployeeName: true, showVehicleType: false, labelName: "Employee/Person Name", showPurpose: true },
-  "Assets & Infra Cost": { showEmployeeName: true, showVehicleType: false, labelName: "Asset/Item Name", showPurpose: true },
-  "General Operations": { showEmployeeName: true, showVehicleType: false, labelName: "Employee/Person Name", showPurpose: true },
-  "Innovation": { showEmployeeName: true, showVehicleType: false, labelName: "Employee/Person Name", showPurpose: true },
-  "Miscellaneous Categories": { showEmployeeName: true, showVehicleType: false, labelName: "Employee/Person Name", showPurpose: true },
-  "Service Revenue": { showEmployeeName: true, showVehicleType: false, labelName: "Service Name", showPurpose: false },
-  "Supplies and Equipments": { showEmployeeName: true, showVehicleType: false, labelName: "Item/Equipment Name", showPurpose: true },
-  "Legal Governance": { showEmployeeName: true, showVehicleType: false, labelName: "Vendor/Person Name", showPurpose: true },
-  "Guest Concierge": { showEmployeeName: true, showVehicleType: false, labelName: "Guest/Person Name", showPurpose: true },
-  "Office Management": { showEmployeeName: true, showVehicleType: false, labelName: "Employee/Person Name", showPurpose: true },
-  "Hardware Sales": { showEmployeeName: true, showVehicleType: false, labelName: "Customer/Client Name", showPurpose: true },
-  "Other": { showEmployeeName: true, showVehicleType: false, labelName: "Item/Person Name", showPurpose: true },
+  // Expense categories
+  "Travel & Entertainment (T&E)": {
+    showEmployeeName: true,
+    showVehicleType: true,
+    labelName: "Employee/Person Name",
+    labelVehicle: "Transport/Travel Type",
+    showPurpose: true,
+  },
+  "Marketing": {
+    showEmployeeName: true,
+    showVehicleType: false,
+    labelName: "Employee/Person Name",
+    showPurpose: true,
+  },
+  "Sales Enablement & Tech Stack": {
+    showEmployeeName: true,
+    showVehicleType: false,
+    labelName: "Employee/Person Name",
+    showPurpose: true,
+  },
+  "Legal/Administrative Expenses": {
+    showEmployeeName: true,
+    showVehicleType: false,
+    labelName: "Vendor/Person Name",
+    showPurpose: true,
+  },
+  "Outsourced Services": {
+    showEmployeeName: true,
+    showVehicleType: false,
+    labelName: "Vendor/Company Name",
+    showPurpose: true,
+  },
+  "Facilities & Overhead": {
+    showEmployeeName: true,
+    showVehicleType: false,
+    labelName: "Employee/Person Name",
+    showPurpose: true,
+  },
+  "Supplies & Equipments": {
+    showEmployeeName: true,
+    showVehicleType: false,
+    labelName: "Item/Equipment Name",
+    showPurpose: true,
+  },
+  "Guest Concierge": {
+    showEmployeeName: true,
+    showVehicleType: false,
+    labelName: "Guest/Person Name",
+    showPurpose: true,
+  },
+  "Events-Conferences-Training": {
+    showEmployeeName: true,
+    showVehicleType: false,
+    labelName: "Event/Training Name",
+    showPurpose: true,
+  },
+  "Business Services Revenue": {
+    showEmployeeName: true,
+    showVehicleType: false,
+    labelName: "Service Name",
+    showPurpose: false,
+  },
+  "Miscellaneous": {
+    showEmployeeName: true,
+    showVehicleType: false,
+    labelName: "Employee/Person Name",
+    showPurpose: true,
+  },
+  "General Operations": {
+    showEmployeeName: true,
+    showVehicleType: false,
+    labelName: "Employee/Person Name",
+    showPurpose: true,
+  },
+  "Innovation": {
+    showEmployeeName: true,
+    showVehicleType: false,
+    labelName: "Employee/Person Name",
+    showPurpose: true,
+  },
+  "Supplies and Equipments": {
+    showEmployeeName: true,
+    showVehicleType: false,
+    labelName: "Item/Equipment Name",
+    showPurpose: true,
+  },
+  "Consulting": {
+    showEmployeeName: true,
+    showVehicleType: false,
+    labelName: "Consultant/Company Name",
+    showPurpose: true,
+  },
+  "Management Fees": {
+    showEmployeeName: true,
+    showVehicleType: false,
+    labelName: "Vendor/Company Name",
+    showPurpose: true,
+  },
+  "Other": {
+    showEmployeeName: true,
+    showVehicleType: false,
+    labelName: "Name/Item",
+    showPurpose: true,
+  },
+  // Income categories
+  "Hardware Sales": {
+    showEmployeeName: true,
+    showVehicleType: false,
+    labelName: "Customer/Client Name",
+    showPurpose: true,
+  },
+  "Professional Services & Implementation": {
+    showEmployeeName: true,
+    showVehicleType: false,
+    labelName: "Service/Project Name",
+    showPurpose: true,
+  },
+  "Software Licenses & SaaS Subscriptions": {
+    showEmployeeName: true,
+    showVehicleType: false,
+    labelName: "Product/Service Name",
+    showPurpose: true,
+  },
+  "Managed Services & Support (MSP)": {
+    showEmployeeName: true,
+    showVehicleType: false,
+    labelName: "Client/Service Name",
+    showPurpose: true,
+  },
+  "Hardware & Infrastructure Reselling": {
+    showEmployeeName: true,
+    showVehicleType: false,
+    labelName: "Customer/Client Name",
+    showPurpose: true,
+  },
+  "Support & Maintenance": {
+    showEmployeeName: true,
+    showVehicleType: false,
+    labelName: "Client/Service Name",
+    showPurpose: true,
+  },
+  "Internal allocations": {
+    showEmployeeName: true,
+    showVehicleType: false,
+    labelName: "Department/Team Name",
+    showPurpose: true,
+  },
 };
 
-// Mapping for MedTech category fields
+// UPDATED MedTech category fields – matches the new category list
 const MEDTECH_CATEGORY_FIELDS = {
-  "Travel & Entertainment": { showEmployeeName: true, showVehicleType: true, labelName: "Employee/Person Name", labelVehicle: "Transport/Travel Type", showPurpose: true },
-  "Marketing Expenses": { showEmployeeName: true, showVehicleType: false, labelName: "Employee/Person Name", showPurpose: true },
-  "Assets & Infra Cost": { showEmployeeName: true, showVehicleType: false, labelName: "Asset/Item Name", showPurpose: true },
-  "General Operations": { showEmployeeName: true, showVehicleType: false, labelName: "Employee/Person Name", showPurpose: true },
-  "Innovation": { showEmployeeName: true, showVehicleType: false, labelName: "Employee/Person Name", showPurpose: true },
-  "Miscellaneous Categories": { showEmployeeName: true, showVehicleType: false, labelName: "Employee/Person Name", showPurpose: true },
-  "Service Revenue": { showEmployeeName: true, showVehicleType: false, labelName: "Service/Customer Name", showPurpose: false },
-  "Supplies and Equipments": { showEmployeeName: true, showVehicleType: false, labelName: "Item/Equipment Name", showPurpose: true },
-  "Legal Governance": { showEmployeeName: true, showVehicleType: false, labelName: "Vendor/Person Name", showPurpose: true },
-  "Guest Concierge": { showEmployeeName: true, showVehicleType: false, labelName: "Guest/Person Name", showPurpose: true },
-  "Office Management": { showEmployeeName: true, showVehicleType: false, labelName: "Employee/Person Name", showPurpose: true },
-  "Consulting": { showEmployeeName: true, showVehicleType: false, labelName: "Consultant/Company Name", showPurpose: true },
-  "Management Fees": { showEmployeeName: true, showVehicleType: false, labelName: "Vendor/Company Name", showPurpose: true },
-  "Other": { showEmployeeName: true, showVehicleType: false, labelName: "Item/Person Name", showPurpose: true },
+  // Expense categories
+  "Travel & Entertainment (T&E)": {
+    showEmployeeName: true,
+    showVehicleType: true,
+    labelName: "Employee/Person Name",
+    labelVehicle: "Transport/Travel Type",
+    showPurpose: true,
+  },
+  "Marketing": {
+    showEmployeeName: true,
+    showVehicleType: false,
+    labelName: "Employee/Person Name",
+    showPurpose: true,
+  },
+  "Supplies & Equipments": {
+    showEmployeeName: true,
+    showVehicleType: false,
+    labelName: "Item/Equipment Name",
+    showPurpose: true,
+  },
+  "Facilities & Overhead": {
+    showEmployeeName: true,
+    showVehicleType: false,
+    labelName: "Employee/Person Name",
+    showPurpose: true,
+  },
+  "General Operations": {
+    showEmployeeName: true,
+    showVehicleType: false,
+    labelName: "Employee/Person Name",
+    showPurpose: true,
+  },
+  "Innovation": {
+    showEmployeeName: true,
+    showVehicleType: false,
+    labelName: "Employee/Person Name",
+    showPurpose: true,
+  },
+  "Supplies and Equipments": {
+    showEmployeeName: true,
+    showVehicleType: false,
+    labelName: "Item/Equipment Name",
+    showPurpose: true,
+  },
+  "Guest Concierge": {
+    showEmployeeName: true,
+    showVehicleType: false,
+    labelName: "Guest/Person Name",
+    showPurpose: true,
+  },
+  "Business Services Revenue": {
+    showEmployeeName: true,
+    showVehicleType: false,
+    labelName: "Service Name",
+    showPurpose: false,
+  },
+  "Miscellaneous": {
+    showEmployeeName: true,
+    showVehicleType: false,
+    labelName: "Employee/Person Name",
+    showPurpose: true,
+  },
+  "Outsourced Services": {
+    showEmployeeName: true,
+    showVehicleType: false,
+    labelName: "Vendor/Company Name",
+    showPurpose: true,
+  },
+  "Events-Conferences-Training": {
+    showEmployeeName: true,
+    showVehicleType: false,
+    labelName: "Event/Training Name",
+    showPurpose: true,
+  },
+  // Income categories
+  "B2B Revenue": {
+    showEmployeeName: true,
+    showVehicleType: false,
+    labelName: "Client/Business Name",
+    showPurpose: true,
+  },
+  "B2C Revenue": {
+    showEmployeeName: true,
+    showVehicleType: false,
+    labelName: "Customer/Client Name",
+    showPurpose: true,
+  },
+  "Other": {
+    showEmployeeName: true,
+    showVehicleType: false,
+    labelName: "Name/Item",
+    showPurpose: true,
+  },
 };
 
-// Mapping for PCM category fields
+// Mapping for PCM category fields (updated – removed Office Supplies & Equipment)
 const PCM_CATEGORY_FIELDS = {
-  "Travel & Entertainment": { showEmployeeName: true, showVehicleType: true, labelName: "Employee/Person Name", labelVehicle: "Transport/Travel Type", showPurpose: true },
-  "Marketing Expenses": { showEmployeeName: true, showVehicleType: false, labelName: "Employee/Person Name", showPurpose: true },
-  "Assets & Infra Cost": { showEmployeeName: true, showVehicleType: false, labelName: "Asset/Item Name", showPurpose: true },
+  // Expense categories
+  "Personnel & Payroll": { showEmployeeName: true, showVehicleType: false, labelName: "Employee/Person Name", showPurpose: true },
+  "Outsourced Services": { showEmployeeName: true, showVehicleType: false, labelName: "Vendor/Company Name", showPurpose: true },
+  "Facilities & Overhead": { showEmployeeName: true, showVehicleType: false, labelName: "Employee/Person Name", showPurpose: true },
+  "Marketing": { showEmployeeName: true, showVehicleType: false, labelName: "Employee/Person Name", showPurpose: true },
+  // "Office Supplies & Equipment" REMOVED – no longer in PCM
+  "Guest Concierge": { showEmployeeName: true, showVehicleType: false, labelName: "Guest/Person Name", showPurpose: true },
+  "Events-Conferences-Training": { showEmployeeName: true, showVehicleType: false, labelName: "Event/Training Name", showPurpose: true },
+  "Business Services Revenue": { showEmployeeName: true, showVehicleType: false, labelName: "Service Name", showPurpose: false },
+  "Miscellaneous": { showEmployeeName: true, showVehicleType: false, labelName: "Employee/Person Name", showPurpose: true },
   "General Operations": { showEmployeeName: true, showVehicleType: false, labelName: "Employee/Person Name", showPurpose: true },
   "Innovation": { showEmployeeName: true, showVehicleType: false, labelName: "Employee/Person Name", showPurpose: true },
-  "Miscellaneous Categories": { showEmployeeName: true, showVehicleType: false, labelName: "Employee/Person Name", showPurpose: true },
-  "Service Revenue": { showEmployeeName: true, showVehicleType: false, labelName: "Service Name", showPurpose: false },
-  "Supplies and Equipments": { showEmployeeName: true, showVehicleType: false, labelName: "Item/Equipment Name", showPurpose: true },
-  "Legal Governance": { showEmployeeName: true, showVehicleType: false, labelName: "Vendor/Person Name", showPurpose: true },
-  "Guest Concierge": { showEmployeeName: true, showVehicleType: false, labelName: "Guest/Person Name", showPurpose: true },
-  "Office Management": { showEmployeeName: true, showVehicleType: false, labelName: "Employee/Person Name", showPurpose: true },
-  "Consulting": { showEmployeeName: true, showVehicleType: false, labelName: "Consultant/Company Name", showPurpose: true },
-  "Management Fees": { showEmployeeName: true, showVehicleType: false, labelName: "Vendor/Company Name", showPurpose: true },
+  "Supplies & Equipment": { showEmployeeName: true, showVehicleType: false, labelName: "Item/Equipment Name", showPurpose: true },
   "Other": { showEmployeeName: true, showVehicleType: false, labelName: "Name/Item", showPurpose: true },
+  // Income categories (no special fields – fallback to standard)
 };
 
 export default function FinanceEntryForm({
@@ -214,23 +430,23 @@ export default function FinanceEntryForm({
 
   // For IT, we may have special fields (but salary is disabled)
   const itFieldConfig = isIT ? IT_CATEGORY_FIELDS[form.category] : null;
-  const showITFields = isIT && itFieldConfig && form.category !== "Payroll Salaries";
-  const isITSalaryCategory = isIT && form.category === "Payroll Salaries";
+  const showITFields = isIT && itFieldConfig && form.category !== salaryCategoryName;
+  const isITSalaryCategory = isIT && form.category === salaryCategoryName;
 
   // For IT Sales, we may have special fields (but salary is disabled)
   const itSalesFieldConfig = isITSales ? IT_SALES_CATEGORY_FIELDS[form.category] : null;
-  const showITSalesFields = isITSales && itSalesFieldConfig && form.category !== "Payroll Salaries";
-  const isITSalesSalaryCategory = isITSales && form.category === "Payroll Salaries";
+  const showITSalesFields = isITSales && itSalesFieldConfig && form.category !== salaryCategoryName;
+  const isITSalesSalaryCategory = isITSales && form.category === salaryCategoryName;
 
   // For MedTech, we may have special fields (but salary is disabled)
   const medTechFieldConfig = isMedTech ? MEDTECH_CATEGORY_FIELDS[form.category] : null;
-  const showMedTechFields = isMedTech && medTechFieldConfig && form.category !== "Payroll Salaries";
-  const isMedTechSalaryCategory = isMedTech && form.category === "Payroll Salaries";
+  const showMedTechFields = isMedTech && medTechFieldConfig && form.category !== salaryCategoryName;
+  const isMedTechSalaryCategory = isMedTech && form.category === salaryCategoryName;
 
   // For PCM, we may have special fields (but salary is disabled)
   const pcmFieldConfig = isPCM ? PCM_CATEGORY_FIELDS[form.category] : null;
-  const showPCMFields = isPCM && pcmFieldConfig && form.category !== "Payroll Salaries";
-  const isPCMSalaryCategory = isPCM && form.category === "Payroll Salaries";
+  const showPCMFields = isPCM && pcmFieldConfig && form.category !== salaryCategoryName;
+  const isPCMSalaryCategory = isPCM && form.category === salaryCategoryName;
 
   // For Office Admin, we may have special fields – must be declared before usingCategoryFields
   const officeFieldConfig = isOfficeAdmin ? OFFICE_ADMIN_CATEGORY_FIELDS[form.category] : null;
@@ -312,6 +528,9 @@ export default function FinanceEntryForm({
   const revenueTypes = options?.revenue_types || [];
   const gstRequired = (options?.gst_required_categories || []).includes(form.category);
   const isOthersCategory = form.category === "Others";
+
+  // Office Admin salary restriction
+  const isOfficeAdminSalary = isOfficeAdmin && form.category === salaryCategoryName;
 
   const handleTypeChange = (event) => {
     const newType = event.target.value;
@@ -415,6 +634,12 @@ export default function FinanceEntryForm({
     }
     if (!form.category) {
       toast.error("Please select a category.");
+      return;
+    }
+
+    // Office Admin: salary category is forbidden
+    if (isOfficeAdmin && form.category === salaryCategoryName) {
+      toast.error("Salary must be entered by Corporate Management only.");
       return;
     }
 
@@ -778,7 +1003,7 @@ export default function FinanceEntryForm({
           salary_amount: parseFloat(emp.salary_amount) || 0,
           allowance_amount: parseFloat(emp.allowance_amount) || 0,
           remarks: emp.remarks || "",
-          entry_date: form.entry_date, // ✅ date from the main form
+          entry_date: form.entry_date,
         }))
       };
       const url = `/${apiBase}/entries`;
@@ -1437,7 +1662,7 @@ export default function FinanceEntryForm({
               <label className="form-label">Category</label>
               <select name="category" value={form.category} onChange={handleCategoryChange} className="form-control">
                 {categoryOptionsForType
-                  .filter(cat => !(isOfficeAdmin && cat === "Payroll Salaries"))
+                  .filter(cat => !(isOfficeAdmin && cat === salaryCategoryName))
                   .map((cat) => (
                     <option key={cat} value={cat}>{cat}</option>
                   ))}
@@ -1449,6 +1674,16 @@ export default function FinanceEntryForm({
             <div className="form-group">
               <label className="form-label">Other Category Name</label>
               <input value={otherCategory} onChange={(e) => setOtherCategory(e.target.value)} placeholder="Enter a category name" className="form-control" />
+            </div>
+          )}
+
+          {/* Office Admin: Salary category message */}
+          {isOfficeAdmin && form.category === salaryCategoryName && (
+            <div className="alert alert-info" style={{ background: "#f0f0ff", padding: "12px", borderRadius: "8px", marginBottom: "12px" }}>
+              <strong>⚠️ Salary must be entered by Corporate Management only.</strong>
+              <p style={{ marginTop: "4px", fontSize: "0.9rem" }}>
+                Please use the Corporate Management dashboard to add salary records for Office Administration employees.
+              </p>
             </div>
           )}
 
@@ -1618,7 +1853,7 @@ export default function FinanceEntryForm({
           )}
 
           {/* OFFICE ADMIN FIELDS */}
-          {isOfficeAdmin && !isSalaryCategory && (
+          {isOfficeAdmin && !isOfficeAdminSalary && (
             <>
               {officeFieldConfig && (
                 <>
@@ -1727,7 +1962,7 @@ export default function FinanceEntryForm({
 
           <div className="modal-footer">
             <button type="button" onClick={onClose} className="btn btn-secondary" disabled={saving}>Cancel</button>
-            <button type="submit" disabled={saving || isITSalaryCategory || isITSalesSalaryCategory || isMedTechSalaryCategory || isPCMSalaryCategory} className="btn btn-primary">
+            <button type="submit" disabled={saving || isITSalaryCategory || isITSalesSalaryCategory || isMedTechSalaryCategory || isPCMSalaryCategory || isOfficeAdminSalary} className="btn btn-primary">
               {saving ? "Saving..." : editingEntry ? "Update Entry" : "Save Entry"}
             </button>
           </div>

@@ -1,3 +1,4 @@
+# backend/routes/pcm.py
 """PCM finance routes — Income/Expenses entries with new Home Health categories.
 Now includes salary entries from Corporate Management.
 """
@@ -38,6 +39,8 @@ def _apply_date_filters(query):
 @pcm_bp.route("/options", methods=["GET"])
 @role_required("PCM")
 def options():
+    # Get the salary category name from Corporate config
+    salary_category = DEPARTMENT_CONFIG.get("Corporate", {}).get("is_salary_category", "Personnel & Payroll")
     return jsonify({
         "department": DEPARTMENT,
         "entry_types": ENTRY_TYPES,
@@ -46,6 +49,7 @@ def options():
         "show_generated_by": CONFIG["show_generated_by"],
         "show_revenue_type": CONFIG["show_revenue_type"],
         "show_patient_fields": CONFIG["show_patient_fields"],
+        "is_salary_category": salary_category,   # for frontend to block salary
     }), 200
 
 
@@ -67,10 +71,13 @@ def create_entry():
     purpose = (data.get("purpose") or "").strip() or None
     vehicle_type = (data.get("vehicle_type") or "").strip() or None
 
+    # Get salary category from Corporate
+    salary_category = DEPARTMENT_CONFIG.get("Corporate", {}).get("is_salary_category", "Personnel & Payroll")
+    is_salary = (entry_type == "Expenses" and category == salary_category)
+
     errors = []
 
-    # Block salary category creation in PCM
-    if category == "Payroll Salaries":
+    if is_salary:
         errors.append("Salaries must be entered by Corporate Management only.")
 
     if entry_type not in ENTRY_TYPES:
@@ -89,7 +96,7 @@ def create_entry():
         amount = 0
 
     # For expense entries (excluding salary), remarks is mandatory
-    if entry_type == "Expenses" and category != "Payroll Salaries" and not remarks:
+    if entry_type == "Expenses" and not is_salary and not remarks:
         errors.append("Remarks are required.")
 
     if errors:
@@ -123,11 +130,12 @@ def list_entries():
     query = _apply_date_filters(query)
 
     # 2. Salary entries from Corporate with exec_department = PCM
+    salary_category = DEPARTMENT_CONFIG.get("Corporate", {}).get("is_salary_category", "Personnel & Payroll")
     salary_query = FinanceEntry.query.filter(
         FinanceEntry.department == "Corporate",
         FinanceEntry.exec_department == "PCM",
         FinanceEntry.entry_type == "Expenses",
-        FinanceEntry.category == "Payroll Salaries"
+        FinanceEntry.category == salary_category
     )
     start_date = _parse_date(request.args.get("start_date"))
     end_date = _parse_date(request.args.get("end_date"))
@@ -177,9 +185,10 @@ def update_entry(entry_id):
 
     errors = []
 
-    # Block changing category to Payroll Salaries
+    # Block changing category to salary category
+    salary_category = DEPARTMENT_CONFIG.get("Corporate", {}).get("is_salary_category", "Personnel & Payroll")
     new_category = data.get("category", entry.category)
-    if new_category == "Payroll Salaries" and entry.category != "Payroll Salaries":
+    if new_category == salary_category and entry.category != salary_category:
         errors.append("Salaries must be entered by Corporate Management only.")
 
     if "entry_type" in data and data["entry_type"] in ENTRY_TYPES:
@@ -218,7 +227,7 @@ def update_entry(entry_id):
         entry.vehicle_type = (data["vehicle_type"] or "").strip() or None
 
     # Remarks mandatory for PCM expenses (except salary)
-    if entry.entry_type == "Expenses" and entry.category != "Payroll Salaries" and not entry.remarks:
+    if entry.entry_type == "Expenses" and entry.category != salary_category and not entry.remarks:
         errors.append("Remarks are required.")
 
     if errors:
@@ -247,11 +256,12 @@ def finance_summary():
     query = _apply_date_filters(query)
 
     # 2. Salary entries from Corporate with exec_department = PCM
+    salary_category = DEPARTMENT_CONFIG.get("Corporate", {}).get("is_salary_category", "Personnel & Payroll")
     salary_query = FinanceEntry.query.filter(
         FinanceEntry.department == "Corporate",
         FinanceEntry.exec_department == "PCM",
         FinanceEntry.entry_type == "Expenses",
-        FinanceEntry.category == "Payroll Salaries"
+        FinanceEntry.category == salary_category
     )
     start_date = _parse_date(request.args.get("start_date"))
     end_date = _parse_date(request.args.get("end_date"))

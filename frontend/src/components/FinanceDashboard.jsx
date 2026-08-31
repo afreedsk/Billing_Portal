@@ -1,3 +1,4 @@
+// frontend/src/components/FinanceDashboard.jsx
 import React, { useEffect, useState, useCallback, useRef } from "react";
 import toast from "react-hot-toast";
 import Navbar from "./Navbar.jsx";

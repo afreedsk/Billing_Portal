@@ -1,3 +1,4 @@
+# backend/routes/it.py
 """IT department finance routes — Income/Expenses entries with categories.
 Now includes salary entries from Corporate Management.
 """
@@ -47,6 +48,7 @@ def options():
         "show_revenue_type": CONFIG["show_revenue_type"],
         "show_client_name": CONFIG["show_client_name"],
         "show_invoice": CONFIG["show_invoice"],
+        "is_salary_category": CONFIG.get("is_salary_category"),   # for frontend
     }), 200
 
 
@@ -71,8 +73,9 @@ def create_entry():
 
     errors = []
 
-    # Block salary category creation in IT
-    if category == "Payroll Salaries":
+    # Block salary category creation in IT – use dynamic salary category
+    salary_category = DEPARTMENT_CONFIG.get("Corporate", {}).get("is_salary_category", "Personnel & Payroll")
+    if category == salary_category:
         errors.append("Salaries must be entered by Corporate Management only.")
 
     if entry_type not in ENTRY_TYPES:
@@ -96,7 +99,7 @@ def create_entry():
         errors.append("amount must be a number.")
 
     # Remarks is mandatory for all IT expense entries (except salary, which is blocked)
-    if entry_type == "Expenses" and category != "Payroll Salaries" and not remarks:
+    if entry_type == "Expenses" and category != salary_category and not remarks:
         errors.append("Remarks are required.")
 
     invoice_path = invoice_original = invoice_mimetype = None
@@ -142,11 +145,12 @@ def list_entries():
     query = _apply_date_filters(query)
 
     # 2. Salary entries from Corporate with exec_department = IT
+    salary_category = DEPARTMENT_CONFIG.get("Corporate", {}).get("is_salary_category", "Personnel & Payroll")
     salary_query = FinanceEntry.query.filter(
         FinanceEntry.department == "Corporate",
         FinanceEntry.exec_department == "IT",
         FinanceEntry.entry_type == "Expenses",
-        FinanceEntry.category == "Payroll Salaries"
+        FinanceEntry.category == salary_category
     )
     # Apply date filters to salary query
     start_date = _parse_date(request.args.get("start_date"))
@@ -197,9 +201,10 @@ def update_entry(entry_id):
 
     errors = []
 
-    # Block changing category to Payroll Salaries
+    # Block changing category to salary category – use dynamic name
+    salary_category = DEPARTMENT_CONFIG.get("Corporate", {}).get("is_salary_category", "Personnel & Payroll")
     new_category = data.get("category", entry.category)
-    if new_category == "Payroll Salaries" and entry.category != "Payroll Salaries":
+    if new_category == salary_category and entry.category != salary_category:
         errors.append("Salaries must be entered by Corporate Management only.")
 
     if "entry_type" in data and data["entry_type"] in ENTRY_TYPES:
@@ -252,7 +257,7 @@ def update_entry(entry_id):
         entry.invoice_mimetype = None
 
     # Remarks mandatory for IT expenses (except salary)
-    if entry.entry_type == "Expenses" and entry.category != "Payroll Salaries" and not entry.remarks:
+    if entry.entry_type == "Expenses" and entry.category != salary_category and not entry.remarks:
         errors.append("Remarks are required.")
 
     if errors:
@@ -282,11 +287,12 @@ def finance_summary():
     query = _apply_date_filters(query)
 
     # 2. Salary entries from Corporate with exec_department = IT
+    salary_category = DEPARTMENT_CONFIG.get("Corporate", {}).get("is_salary_category", "Personnel & Payroll")
     salary_query = FinanceEntry.query.filter(
         FinanceEntry.department == "Corporate",
         FinanceEntry.exec_department == "IT",
         FinanceEntry.entry_type == "Expenses",
-        FinanceEntry.category == "Payroll Salaries"
+        FinanceEntry.category == salary_category
     )
     start_date = _parse_date(request.args.get("start_date"))
     end_date = _parse_date(request.args.get("end_date"))

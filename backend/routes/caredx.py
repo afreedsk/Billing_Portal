@@ -1,3 +1,4 @@
+# backend/routes/caredx.py
 """
 Caredx routes.
 
@@ -23,6 +24,7 @@ from models import (
     CaredxLabEntry,
     CaredxExpense,
     FinanceEntry,
+    DEPARTMENT_CONFIG,
 )
 
 from utils import role_required
@@ -654,7 +656,9 @@ def create_expense():
         errors.append("category is required.")
 
     # Prevent salary category from being created here
-    if category == "Payroll Salaries":
+    # Get the salary category name from Corporate config
+    salary_category = DEPARTMENT_CONFIG.get("Corporate", {}).get("is_salary_category", "Personnel & Payroll")
+    if category == salary_category:
         errors.append("Salaries must be entered by Corporate Management only.")
 
     try:
@@ -713,8 +717,10 @@ def list_expenses():
     ).all()
 
     # 2. Fetch salary entries from FinanceEntry for Caredx
+    # Use dynamic salary category from Corporate config
+    salary_category = DEPARTMENT_CONFIG.get("Corporate", {}).get("is_salary_category", "Personnel & Payroll")
     salary_query = FinanceEntry.query.filter(
-        FinanceEntry.category == "Payroll Salaries",
+        FinanceEntry.category == salary_category,
         or_(
             FinanceEntry.department == "Caredx",
             (FinanceEntry.department == "Corporate") & (FinanceEntry.exec_department == "Caredx")
@@ -746,7 +752,7 @@ def list_expenses():
         salary_items.append({
             "id": -s.id,  # negative to avoid collision with CaredxExpense IDs
             "expense_date": s.entry_date.isoformat(),
-            "category": "Payroll Salaries",
+            "category": salary_category,  # use dynamic name
             "amount": float(s.amount),
             "remarks": f"Salary for {s.employee_name} ({s.exec_department}) - {s.remarks or ''}",
             "employee_name": s.employee_name,
@@ -779,7 +785,8 @@ def update_expense(expense_id):
         if "category" in data:
             category = (data.get("category") or "").strip()
             if category:
-                if category == "Payroll Salaries":
+                salary_category = DEPARTMENT_CONFIG.get("Corporate", {}).get("is_salary_category", "Personnel & Payroll")
+                if category == salary_category:
                     return jsonify({"message": "Salaries must be entered by Corporate Management only."}), 400
                 expense.category = category
 
@@ -869,8 +876,9 @@ def lab_entries_summary():
     exp_query = _apply_date_filters(CaredxExpense.query, CaredxExpense.expense_date)
     caredx_expenses = exp_query.all()
 
+    salary_category = DEPARTMENT_CONFIG.get("Corporate", {}).get("is_salary_category", "Personnel & Payroll")
     salary_query = FinanceEntry.query.filter(
-        FinanceEntry.category == "Payroll Salaries",
+        FinanceEntry.category == salary_category,
         or_(
             FinanceEntry.department == "Caredx",
             (FinanceEntry.department == "Corporate") & (FinanceEntry.exec_department == "Caredx")
@@ -1010,10 +1018,10 @@ def lab_entries_summary():
     total_salary = sum(float(s.amount or 0) for s in salary_entries)
     if total_salary > 0:
         by_category.setdefault(
-            "Payroll Salaries",
-            {"category": "Payroll Salaries", "amount": 0}
+            salary_category,
+            {"category": salary_category, "amount": 0}
         )
-        by_category["Payroll Salaries"]["amount"] += total_salary
+        by_category[salary_category]["amount"] += total_salary
 
     return jsonify(
         {

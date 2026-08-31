@@ -1,3 +1,4 @@
+# backend/routes/adminfunctionalunit.py
 """Administration Functional Unit routes — Income/Expenses entries."""
 from datetime import datetime, date
 from flask import Blueprint, request, jsonify
@@ -15,6 +16,7 @@ adminfunctionalunit_bp = Blueprint(
     url_prefix="/api/adminstrationfunctionalunit"
 )
 
+
 def _parse_date(value, default=None):
     if not value:
         return default
@@ -22,6 +24,7 @@ def _parse_date(value, default=None):
         return datetime.strptime(value, "%Y-%m-%d").date()
     except ValueError:
         return default
+
 
 def _apply_date_filters(query):
     start_date = _parse_date(request.args.get("start_date"))
@@ -31,6 +34,7 @@ def _apply_date_filters(query):
     if end_date:
         query = query.filter(FinanceEntry.entry_date <= end_date)
     return query
+
 
 @adminfunctionalunit_bp.route("/options", methods=["GET"])
 @role_required("Adminstrationfunctionalunit")
@@ -47,7 +51,9 @@ def options():
         "show_gst_number": CONFIG["show_gst_number"],
         "show_items": CONFIG["show_items"],
         "show_invoice": CONFIG["show_invoice"],
+        "is_salary_category": CONFIG.get("is_salary_category"),  # <-- added for frontend
     }), 200
+
 
 @adminfunctionalunit_bp.route("/entries", methods=["POST"])
 @role_required("Adminstrationfunctionalunit")
@@ -58,15 +64,22 @@ def create_entry():
     amount = data.get("amount")
     remarks = data.get("remarks", "")
     
-    # SAFE: handle None values before calling .strip()
     generated_by = (data.get("generated_by") or "").strip() or None
     entry_date = _parse_date(data.get("entry_date"), default=date.today())
 
-    # New fields for Office Admin categories – safely handle None
     employee_name = (data.get("employee_name") or "").strip() or None
     vehicle_type = (data.get("vehicle_type") or "").strip() or None
 
     errors = []
+
+    # BLOCK salary category (Personnel & Payroll)
+    salary_category = CONFIG.get("is_salary_category")
+    if entry_type == "Expenses" and category == salary_category:
+        return jsonify({
+            "message": "Salary must be entered by Corporate Management only.",
+            "errors": ["Personnel & Payroll entries are not allowed in Office Administration."]
+        }), 403
+
     if entry_type not in ENTRY_TYPES:
         errors.append("entry_type must be Income or Expenses.")
     allowed_categories = CONFIG["categories"].get(entry_type, [])
@@ -99,6 +112,7 @@ def create_entry():
     db.session.commit()
     return jsonify({"message": "Entry created.", "entry": entry.to_dict()}), 201
 
+
 @adminfunctionalunit_bp.route("/entries", methods=["GET"])
 @role_required("Adminstrationfunctionalunit")
 def list_entries():
@@ -124,6 +138,7 @@ def list_entries():
     query = query.order_by(FinanceEntry.entry_date.desc(), FinanceEntry.id.desc())
     return jsonify({"entries": [e.to_dict() for e in query.all()]}), 200
 
+
 @adminfunctionalunit_bp.route("/entries/<int:entry_id>", methods=["PUT"])
 @role_required("Adminstrationfunctionalunit")
 def update_entry(entry_id):
@@ -146,7 +161,6 @@ def update_entry(entry_id):
         except (TypeError, ValueError):
             pass
     if "generated_by" in data:
-        # SAFE: handle None
         entry.generated_by = (data.get("generated_by") or "").strip() or None
     if "remarks" in data:
         entry.remarks = data["remarks"]
@@ -162,6 +176,7 @@ def update_entry(entry_id):
     db.session.commit()
     return jsonify({"message": "Entry updated.", "entry": entry.to_dict()}), 200
 
+
 @adminfunctionalunit_bp.route("/entries/<int:entry_id>", methods=["DELETE"])
 @role_required("Adminstrationfunctionalunit")
 def delete_entry(entry_id):
@@ -171,6 +186,7 @@ def delete_entry(entry_id):
     db.session.delete(entry)
     db.session.commit()
     return jsonify({"message": "Entry deleted."}), 200
+
 
 @adminfunctionalunit_bp.route("/summary", methods=["GET"])
 @role_required("Adminstrationfunctionalunit")

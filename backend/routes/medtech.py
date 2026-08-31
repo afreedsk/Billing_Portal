@@ -1,3 +1,4 @@
+# backend/routes/medtech.py
 """MedTech finance routes - Income/Expenses entries"""
 import json
 from datetime import datetime, date
@@ -11,7 +12,6 @@ from file_utils import save_invoice_file, delete_invoice_file
 DEPARTMENT = "MedTech"
 CONFIG = DEPARTMENT_CONFIG[DEPARTMENT]
 
-# *** CRITICAL: The blueprint MUST be named medtech_bp ***
 medtech_bp = Blueprint("medtech", __name__, url_prefix="/api/medtech")
 
 def _parse_date(value, default=None):
@@ -77,6 +77,8 @@ def _parse_gst_tax_percent(raw_value):
 @medtech_bp.route("/options", methods=["GET"])
 @role_required("MedTech")
 def options():
+    # Fetch the salary category name from Corporate config
+    salary_category = DEPARTMENT_CONFIG.get("Corporate", {}).get("is_salary_category", "Personnel & Payroll")
     return jsonify({
         "department": DEPARTMENT,
         "entry_types": ENTRY_TYPES,
@@ -91,6 +93,7 @@ def options():
         "show_invoice": CONFIG["show_invoice"],
         "show_gst_tax": CONFIG["show_gst_tax"],
         "show_tax_invoice_number": CONFIG["show_tax_invoice_number"],
+        "is_salary_category": salary_category,   # <-- now correctly returns the salary category name
     }), 200
 
 @medtech_bp.route("/entries", methods=["POST"])
@@ -107,46 +110,35 @@ def create_entry():
     remarks = data.get("remarks", "")
     entry_date = _parse_date(data.get("entry_date"), default=date.today())
 
-    # Travel Expense Fields
+    # Generic fields (used by some categories)
     employee_name = (data.get("employee_name") or "").strip() or None
     vehicle_type = (data.get("vehicle_type") or "").strip() or None
     amount = data.get("amount")
 
-    # *** CRITICAL: Case-insensitive check for travel expenses ***
-    is_travel_expense = category and category.lower() == "travel expenses"
+    # Get salary category from Corporate
+    salary_category = DEPARTMENT_CONFIG.get("Corporate", {}).get("is_salary_category", "Personnel & Payroll")
+    is_salary = (entry_type == "Expenses" and category == salary_category)
 
     errors = []
     if entry_type not in ENTRY_TYPES:
         errors.append("entry_type must be Income or Expenses.")
 
     allowed_categories = CONFIG["categories"].get(entry_type, [])
-    # *** Allow travel expenses even if case mismatch in DB ***
-    if category not in allowed_categories and not is_travel_expense:
+    if category not in allowed_categories:
         errors.append(f"category must be one of: {', '.join(allowed_categories)}.")
 
-    # *** BYPASS STANDARD VALIDATIONS FOR TRAVEL EXPENSES ***
-    if is_travel_expense:
-        if not employee_name:
-            errors.append("employee_name is required for travel expenses.")
-        if not vehicle_type:
-            errors.append("vehicle_type is required for travel expenses.")
-        if not remarks:
-            errors.append("remarks (purpose) is required for travel expenses.")
-        try:
-            amount = float(amount)
-            if amount <= 0:
-                errors.append("amount must be greater than 0.")
-        except (TypeError, ValueError):
-            errors.append("amount must be a number.")
-    else:
+    if is_salary:
+        errors.append("Salaries must be entered by Corporate Management only.")
+
+    if not is_salary:
         # Standard MedTech validations
-        if not generated_by:
-            errors.append("generated_by (employee name) is required.")
-        if revenue_type not in CONFIG["revenue_types"]:
+        if entry_type == "Income" and not generated_by:
+            errors.append("generated_by (employee name) is required for Income entries.")
+        if CONFIG["show_revenue_type"] and revenue_type not in CONFIG["revenue_types"]:
             errors.append(f"revenue_type must be one of: {', '.join(CONFIG['revenue_types'])}.")
-        if category in CONFIG["gst_required_categories"] and not gst_number:
+        if CONFIG["show_gst_number"] and category in CONFIG["gst_required_categories"] and not gst_number:
             errors.append(f"gst_number is required for {category} entries.")
-        
+
         gst_tax_percent, gst_tax_error = _parse_gst_tax_percent(data.get("gst_tax_percent"))
         if gst_tax_error:
             errors.append(gst_tax_error)
@@ -159,11 +151,21 @@ def create_entry():
 
         clean_items, items_total, item_errors = _validate_items(items_data)
         errors.extend(item_errors)
+    else:
+        # Salary is blocked – set defaults
+        clean_items = []
+        items_total = 0
+        gst_tax_percent = 0.0
+        amount = 0
+        generated_by = None
+        revenue_type = None
+        gst_number = None
+        tax_invoice_number = None
 
-    # Invoice handling (skip for travel)
+    # Invoice handling (skip for salary)
     invoice_path = invoice_original = invoice_mimetype = None
     invoice_file = request.files.get("invoice")
-    if invoice_file and invoice_file.filename and not is_travel_expense:
+    if CONFIG["show_invoice"] and invoice_file and invoice_file.filename and not is_salary:
         try:
             invoice_path, invoice_original, invoice_mimetype = save_invoice_file(invoice_file, DEPARTMENT)
         except ValueError as e:
@@ -173,26 +175,25 @@ def create_entry():
         return jsonify({"message": "Validation failed.", "errors": errors}), 400
 
     # Calculate totals
-    if is_travel_expense:
-        base_amount = float(amount)
-        gst_tax_percent = 0.0
-        gst_tax_amount = 0.0
-        total_amount = base_amount
-        clean_items = [] # Ensure no items are attached
-    else:
+    if not is_salary:
         base_amount = items_total
-        gst_tax_amount = round(base_amount * gst_tax_percent / 100, 2)
+        gst_tax_amount = round(base_amount * gst_tax_percent / 100, 2) if gst_tax_percent else 0
         total_amount = round(base_amount + gst_tax_amount, 2)
+    else:
+        base_amount = 0
+        gst_tax_percent = 0
+        gst_tax_amount = 0
+        total_amount = 0
 
     entry = FinanceEntry(
         department=DEPARTMENT,
         entry_type=entry_type,
         category=category,
-        generated_by=generated_by if not is_travel_expense else None,
-        revenue_type=revenue_type if not is_travel_expense else None,
+        generated_by=generated_by if not is_salary else None,
+        revenue_type=revenue_type if not is_salary else None,
         client_name=client_name,
-        gst_number=gst_number if not is_travel_expense else None,
-        tax_invoice_number=tax_invoice_number if not is_travel_expense else None,
+        gst_number=gst_number if not is_salary else None,
+        tax_invoice_number=tax_invoice_number if not is_salary else None,
         amount=total_amount,
         base_amount=base_amount,
         gst_tax_percent=gst_tax_percent,
@@ -207,7 +208,7 @@ def create_entry():
         created_by_id=get_jwt_identity(),
     )
     
-    if not is_travel_expense:
+    if not is_salary and clean_items:
         for item in clean_items:
             entry.items.append(FinanceEntryItem(**item))
 
@@ -246,7 +247,6 @@ def update_entry(entry_id):
     if not entry:
         return jsonify({"message": "Entry not found."}), 404
 
-    # Support both JSON and form-data
     if request.is_json:
         data = request.get_json() or {}
     else:
@@ -254,7 +254,11 @@ def update_entry(entry_id):
 
     errors = []
 
-    # Basic field updates
+    # Block changing to salary category
+    salary_category = DEPARTMENT_CONFIG.get("Corporate", {}).get("is_salary_category", "Personnel & Payroll")
+    if "category" in data and data["category"] == salary_category and entry.category != salary_category:
+        errors.append("Salaries must be entered by Corporate Management only.")
+
     if "entry_type" in data and data["entry_type"] in ENTRY_TYPES:
         entry.entry_type = data["entry_type"]
     if "category" in data:
@@ -284,7 +288,6 @@ def update_entry(entry_id):
     if "vehicle_type" in data:
         entry.vehicle_type = (data["vehicle_type"] or "").strip() or None
 
-    # --- Amount handling (NEW) ---
     amount_from_request = data.get("amount")
     if amount_from_request is not None and amount_from_request != "":
         try:
@@ -297,10 +300,8 @@ def update_entry(entry_id):
     else:
         base_amount = float(entry.base_amount) if entry.base_amount is not None else 0.0
 
-    # --- Items handling (if items are sent, they override the amount) ---
     items_changed = "items" in data
     if items_changed:
-        # Parse items: JSON already list; form-data is JSON string
         if request.is_json:
             items_data = data.get("items") or []
         else:
@@ -312,11 +313,9 @@ def update_entry(entry_id):
         clean_items, items_total, item_errors = _validate_items(items_data)
         errors.extend(item_errors)
         if not item_errors:
-            # Replace items
             entry.items = [FinanceEntryItem(**item) for item in clean_items]
-            base_amount = items_total  # override
+            base_amount = items_total
 
-    # --- GST handling ---
     if "gst_tax_percent" in data:
         gst_tax_percent, gst_tax_error = _parse_gst_tax_percent(data.get("gst_tax_percent"))
         if gst_tax_error:
@@ -324,7 +323,6 @@ def update_entry(entry_id):
     else:
         gst_tax_percent = float(entry.gst_tax_percent) if entry.gst_tax_percent is not None else 0.0
 
-    # --- Invoice file handling (only for form-data) ---
     if request.files:
         invoice_file = request.files.get("invoice")
         if invoice_file and invoice_file.filename:
@@ -346,8 +344,7 @@ def update_entry(entry_id):
     if errors:
         return jsonify({"message": "Validation failed.", "errors": errors}), 400
 
-    # Recalculate totals
-    gst_tax_amount = round(base_amount * gst_tax_percent / 100, 2)
+    gst_tax_amount = round(base_amount * gst_tax_percent / 100, 2) if gst_tax_percent else 0
     entry.base_amount = base_amount
     entry.gst_tax_percent = gst_tax_percent
     entry.gst_tax_amount = gst_tax_amount

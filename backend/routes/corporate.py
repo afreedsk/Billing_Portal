@@ -1,7 +1,6 @@
-"""Corporate finance routes — Income/Expenses entries.
-Payroll Salaries category uses exec_department to allocate salaries.
-Now supports multiple employees per submission and stores entries under "Corporate".
-"""
+# backend/routes/corporate.py
+import sys
+import traceback
 from datetime import datetime, date
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import get_jwt_identity
@@ -11,8 +10,6 @@ from utils import role_required
 
 DEPARTMENT = "Corporate"
 CONFIG = DEPARTMENT_CONFIG[DEPARTMENT]
-
-# Allowed departments for salary allocation (from config)
 EXEC_DEPARTMENTS = CONFIG.get("exec_departments", [])
 
 corporate_bp = Blueprint("corporate", __name__, url_prefix="/api/corporate")
@@ -35,6 +32,16 @@ def _apply_date_filters(query):
     if end_date:
         query = query.filter(FinanceEntry.entry_date <= end_date)
     return query
+
+
+def _to_float_or_none(value):
+    """Convert to float if non‑empty, else None."""
+    if value is None or value == "":
+        return None
+    try:
+        return float(value)
+    except (ValueError, TypeError):
+        return None
 
 
 @corporate_bp.route("/options", methods=["GET"])
@@ -63,118 +70,126 @@ def options():
 @corporate_bp.route("/entries", methods=["POST"])
 @role_required("Corporate")
 def create_entry():
-    data = request.get_json(silent=True) or {}
-
-    # Check if this is a bulk salary submission
-    if "entries" in data and isinstance(data["entries"], list):
-        salary_entries = data["entries"]
-        if not salary_entries:
-            return jsonify({"message": "No employee entries provided."}), 400
-
-        created = []
-        errors = []
-        for idx, emp_data in enumerate(salary_entries):
-            emp_errors = _validate_salary_entry(emp_data)
-            if emp_errors:
-                errors.append(f"Employee {idx+1}: " + "; ".join(emp_errors))
-                continue
-
-            entry = _create_single_salary_entry(emp_data)
-            if entry:
-                created.append(entry)
-            else:
-                errors.append(f"Employee {idx+1}: failed to create.")
-
-        if errors and not created:
-            return jsonify({"message": "All employees failed.", "errors": errors}), 400
-        elif errors:
-            db.session.commit()
-            return jsonify({
-                "message": f"Created {len(created)} of {len(salary_entries)} salary entries.",
-                "errors": errors,
-                "entries": [e.to_dict() for e in created]
-            }), 201
-        else:
-            db.session.commit()
-            return jsonify({
-                "message": f"Created {len(created)} salary entries.",
-                "entries": [e.to_dict() for e in created]
-            }), 201
-
-    # Single entry (non-salary or single salary)
-    errors = []
-    entry_type = data.get("entry_type")
-    category = data.get("category")
-    generated_by = (data.get("generated_by") or "").strip()
-    client_name = (data.get("client_name") or "").strip() or None
-    amount = data.get("amount")
-    remarks = data.get("remarks", "")
-    entry_date = _parse_date(data.get("entry_date"), default=date.today())
-
-    exec_department = data.get("exec_department")
-    employee_name = (data.get("employee_name") or "").strip() or None
-    salary_amount = data.get("salary_amount")
-    allowance_amount = data.get("allowance_amount")
-
-    if entry_type not in ENTRY_TYPES:
-        errors.append("entry_type must be Income or Expenses.")
-
-    allowed_categories = CONFIG["categories"].get(entry_type, [])
-    if category not in allowed_categories:
-        errors.append(f"category must be one of: {', '.join(allowed_categories)}.")
-
-    # If salary category, require exec_department, employee_name, salary_amount or allowance_amount
-    if entry_type == "Expenses" and category == CONFIG.get("is_salary_category"):
-        if not exec_department:
-            errors.append("exec_department is required for Payroll Salaries.")
-        elif exec_department not in EXEC_DEPARTMENTS:
-            errors.append(f"exec_department must be one of: {', '.join(EXEC_DEPARTMENTS)}.")
-        if not employee_name:
-            errors.append("employee_name is required for Payroll Salaries.")
-        for field, val in [("salary_amount", salary_amount), ("allowance_amount", allowance_amount)]:
-            if val is not None:
-                try:
-                    float(val)
-                except (TypeError, ValueError):
-                    errors.append(f"{field} must be a number.")
-
     try:
-        amount = float(amount)
-        if amount <= 0:
-            errors.append("amount must be greater than 0.")
-    except (TypeError, ValueError):
-        errors.append("amount must be a number.")
+        data = request.get_json(silent=True) or {}
+        print("📥 Received payload:", data)
 
-    if errors:
-        return jsonify({"message": "Validation failed.", "errors": errors}), 400
+        # Bulk salary submission
+        if "entries" in data and isinstance(data["entries"], list):
+            salary_entries = data["entries"]
+            if not salary_entries:
+                return jsonify({"message": "No employee entries provided."}), 400
 
-    entry = FinanceEntry(
-        department=DEPARTMENT,
-        entry_type=entry_type,
-        category=category,
-        generated_by=generated_by,
-        client_name=client_name,
-        amount=amount,
-        remarks=remarks,
-        entry_date=entry_date,
-        created_by_id=get_jwt_identity(),
-        exec_department=exec_department,
-        employee_name=employee_name,
-        salary_amount=float(salary_amount) if salary_amount is not None else None,
-        allowance_amount=float(allowance_amount) if allowance_amount is not None else None,
-    )
-    db.session.add(entry)
-    db.session.commit()
-    return jsonify({"message": "Entry created.", "entry": entry.to_dict()}), 201
+            created = []
+            errors = []
+            for idx, emp_data in enumerate(salary_entries):
+                emp_errors = _validate_salary_entry(emp_data)
+                if emp_errors:
+                    errors.append(f"Employee {idx+1}: " + "; ".join(emp_errors))
+                    continue
+
+                entry = _create_single_salary_entry(emp_data)
+                if entry:
+                    created.append(entry)
+                else:
+                    errors.append(f"Employee {idx+1}: failed to create.")
+
+            if errors and not created:
+                return jsonify({"message": "All employees failed.", "errors": errors}), 400
+            elif errors:
+                db.session.commit()
+                return jsonify({
+                    "message": f"Created {len(created)} of {len(salary_entries)} salary entries.",
+                    "errors": errors,
+                    "entries": [e.to_dict() for e in created]
+                }), 201
+            else:
+                db.session.commit()
+                return jsonify({
+                    "message": f"Created {len(created)} salary entries.",
+                    "entries": [e.to_dict() for e in created]
+                }), 201
+
+        # Single entry
+        errors = []
+        entry_type = data.get("entry_type")
+        category = data.get("category")
+        generated_by = (data.get("generated_by") or "").strip()
+        client_name = (data.get("client_name") or "").strip() or None
+        amount = data.get("amount")
+        remarks = data.get("remarks", "")
+        entry_date = _parse_date(data.get("entry_date"), default=date.today())
+        exec_department = data.get("exec_department") or None
+        employee_name = (data.get("employee_name") or "").strip() or None
+        salary_amount = _to_float_or_none(data.get("salary_amount"))
+        allowance_amount = _to_float_or_none(data.get("allowance_amount"))
+
+        # Validation
+        if entry_type not in ENTRY_TYPES:
+            errors.append("entry_type must be Income or Expenses.")
+
+        allowed_categories = CONFIG["categories"].get(entry_type, [])
+        if category not in allowed_categories:
+            errors.append(f"category must be one of: {', '.join(allowed_categories)}.")
+
+        salary_category = CONFIG.get("is_salary_category")
+        if entry_type == "Expenses" and category == salary_category:
+            if not exec_department:
+                errors.append("exec_department is required for Payroll Salaries.")
+            elif exec_department not in EXEC_DEPARTMENTS:
+                errors.append(f"exec_department must be one of: {', '.join(EXEC_DEPARTMENTS)}.")
+            if not employee_name:
+                errors.append("employee_name is required for Payroll Salaries.")
+            sal = salary_amount or 0
+            allow = allowance_amount or 0
+            if sal <= 0 and allow <= 0:
+                errors.append("At least one of Salary or TADA must be greater than 0.")
+
+        try:
+            amount = float(amount)
+            if amount <= 0:
+                errors.append("amount must be greater than 0.")
+        except (TypeError, ValueError):
+            errors.append("amount must be a number.")
+
+        if errors:
+            print("❌ Validation errors:", errors)
+            return jsonify({"message": "Validation failed.", "errors": errors}), 400
+
+        # Create entry
+        entry = FinanceEntry(
+            department=DEPARTMENT,
+            entry_type=entry_type,
+            category=category,
+            generated_by=generated_by,
+            client_name=client_name,
+            amount=amount,
+            remarks=remarks,
+            entry_date=entry_date,
+            created_by_id=get_jwt_identity(),
+            exec_department=exec_department,
+            employee_name=employee_name,
+            salary_amount=salary_amount,
+            allowance_amount=allowance_amount,
+        )
+        db.session.add(entry)
+        db.session.commit()
+        print("✅ Entry created:", entry.id)
+        return jsonify({"message": "Entry created.", "entry": entry.to_dict()}), 201
+
+    except Exception as e:
+        print("🔴 Exception in create_entry:", file=sys.stderr)
+        traceback.print_exc()
+        db.session.rollback()
+        return jsonify({"message": "Internal server error", "error": str(e)}), 500
 
 
 def _validate_salary_entry(emp_data):
-    """Validate a single employee salary dictionary."""
     errors = []
     exec_department = emp_data.get("exec_department")
     employee_name = (emp_data.get("employee_name") or "").strip()
-    salary_amount = emp_data.get("salary_amount")
-    allowance_amount = emp_data.get("allowance_amount")
+    salary_amount = _to_float_or_none(emp_data.get("salary_amount"))
+    allowance_amount = _to_float_or_none(emp_data.get("allowance_amount"))
 
     if not exec_department:
         errors.append("Department is required.")
@@ -182,35 +197,33 @@ def _validate_salary_entry(emp_data):
         errors.append(f"Department must be one of: {', '.join(EXEC_DEPARTMENTS)}.")
     if not employee_name:
         errors.append("Employee name is required.")
-    try:
-        sal = float(salary_amount) if salary_amount is not None else 0
-        allow = float(allowance_amount) if allowance_amount is not None else 0
-        if sal <= 0 and allow <= 0:
-            errors.append("At least one of Salary or TADA must be greater than 0.")
-    except (TypeError, ValueError):
-        errors.append("Salary and TADA must be numbers.")
+    sal = salary_amount or 0
+    allow = allowance_amount or 0
+    if sal <= 0 and allow <= 0:
+        errors.append("At least one of Salary or TADA must be greater than 0.")
     return errors
 
 
 def _create_single_salary_entry(emp_data):
-    """Create a FinanceEntry from employee data, stored under 'Corporate' with target department in exec_department."""
-    total = float(emp_data.get("salary_amount") or 0) + float(emp_data.get("allowance_amount") or 0)
+    salary_amount = _to_float_or_none(emp_data.get("salary_amount"))
+    allowance_amount = _to_float_or_none(emp_data.get("allowance_amount"))
+    total = (salary_amount or 0) + (allowance_amount or 0)
     if total <= 0:
         return None
     entry = FinanceEntry(
-        department="Corporate",  # Store under Corporate
+        department="Corporate",
         entry_type="Expenses",
-        category=CONFIG.get("is_salary_category"),  # "Payroll Salaries"
+        category=CONFIG.get("is_salary_category"),
         generated_by=None,
         client_name=None,
         amount=total,
         remarks=emp_data.get("remarks", ""),
         entry_date=_parse_date(emp_data.get("entry_date"), default=date.today()),
         created_by_id=get_jwt_identity(),
-        exec_department=emp_data.get("exec_department"),  # target department
+        exec_department=emp_data.get("exec_department"),
         employee_name=(emp_data.get("employee_name") or "").strip(),
-        salary_amount=float(emp_data.get("salary_amount") or 0),
-        allowance_amount=float(emp_data.get("allowance_amount") or 0),
+        salary_amount=salary_amount,
+        allowance_amount=allowance_amount,
     )
     db.session.add(entry)
     return entry
@@ -220,7 +233,7 @@ def _create_single_salary_entry(emp_data):
 @role_required("Corporate")
 def list_entries():
     query = FinanceEntry.query.filter_by(department=DEPARTMENT)
-    query = _apply_date_filters(query)   # No category filter – all entries
+    query = _apply_date_filters(query)
 
     entry_type = request.args.get("entry_type")
     if entry_type in ENTRY_TYPES:
@@ -246,10 +259,7 @@ def list_entries():
 
     query = query.order_by(FinanceEntry.entry_date.desc(), FinanceEntry.id.desc())
     entries = query.all()
-    
-    # Debug: print count
     print(f"Corporate entries returned: {len(entries)}")
-    
     return jsonify({"entries": [e.to_dict() for e in entries]}), 200
 
 
@@ -295,15 +305,9 @@ def update_entry(entry_id):
     if "employee_name" in data:
         entry.employee_name = (data["employee_name"] or "").strip() or None
     if "salary_amount" in data:
-        try:
-            entry.salary_amount = float(data["salary_amount"]) if data["salary_amount"] is not None else None
-        except (TypeError, ValueError):
-            errors.append("salary_amount must be a number.")
+        entry.salary_amount = _to_float_or_none(data["salary_amount"])
     if "allowance_amount" in data:
-        try:
-            entry.allowance_amount = float(data["allowance_amount"]) if data["allowance_amount"] is not None else None
-        except (TypeError, ValueError):
-            errors.append("allowance_amount must be a number.")
+        entry.allowance_amount = _to_float_or_none(data["allowance_amount"])
 
     if errors:
         return jsonify({"message": "Validation failed.", "errors": errors}), 400
@@ -327,7 +331,6 @@ def delete_entry(entry_id):
 @role_required("Corporate")
 def finance_summary():
     entries = _apply_date_filters(FinanceEntry.query.filter_by(department=DEPARTMENT)).all()
-    # No category filter
 
     total_income = sum(float(e.amount) for e in entries if e.entry_type == "Income")
     total_expenses = sum(float(e.amount) for e in entries if e.entry_type == "Expenses")

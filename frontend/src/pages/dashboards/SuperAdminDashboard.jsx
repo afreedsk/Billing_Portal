@@ -1,3 +1,4 @@
+// frontend/src/pages/dashboards/SuperAdminDashboard.jsx
 import React, { useEffect, useState, useCallback, useRef } from "react";
 import toast from "react-hot-toast";
 import {
@@ -38,6 +39,7 @@ const formatCurrency = (value) =>
 
 const firstOfMonth = () => {
   const d = new Date();
+  d.setMonth(d.getMonth() - 3);
   return new Date(d.getFullYear(), d.getMonth(), 1).toISOString().split("T")[0];
 };
 const todayStr = () => new Date().toISOString().split("T")[0];
@@ -57,6 +59,12 @@ export default function SuperAdminDashboard() {
   const [selectedCategory, setSelectedCategory] = useState(null);
   const [caredxSection, setCaredxSection] = useState("lab");
   const [departmentOptions, setDepartmentOptions] = useState(null);
+
+  // Pagination state
+  const [page, setPage] = useState(1);
+  const [perPage, setPerPage] = useState(30);
+  const [totalEntries, setTotalEntries] = useState(0);
+  const [totalPages, setTotalPages] = useState(0);
 
   const [deptEntries, setDeptEntries] = useState([]);
   const [deptSummary, setDeptSummary] = useState(null);
@@ -108,6 +116,8 @@ export default function SuperAdminDashboard() {
         ...(activeExtra?.revenue_type && { revenue_type: activeExtra.revenue_type }),
         ...(selectedCategory && { category: selectedCategory }),
         ...(activeDept === "Caredx" && { section: caredxSection }),
+        page: page,
+        per_page: perPage,
       };
 
       const entriesRes = await api.get(`/admin/departments/${activeDept}/entries`, { params });
@@ -119,6 +129,11 @@ export default function SuperAdminDashboard() {
         ...(activeDept === "Caredx" && { section: caredxSection }),
       };
       const summaryRes = await api.get(`/admin/departments/${activeDept}/summary`, { params: summaryParams });
+
+      const pagination = entriesRes.data.pagination || {};
+      setTotalEntries(pagination.total || 0);
+      setTotalPages(pagination.pages || 0);
+      setPage(pagination.page || 1);
 
       if (activeDept === "Caredx") {
         setCaredxLabEntries(entriesRes.data.lab_entries || []);
@@ -133,9 +148,12 @@ export default function SuperAdminDashboard() {
     } finally {
       setDeptLoading(false);
     }
-  }, [activeDept, activeExtra, startDate, endDate, searchTerm, selectedCategory, caredxSection]);
+  }, [activeDept, activeExtra, startDate, endDate, searchTerm, selectedCategory, caredxSection, page, perPage]);
 
-  // ---------- Effects ----------
+  useEffect(() => {
+    setPage(1);
+  }, [startDate, endDate, searchTerm, selectedCategory, caredxSection]);
+
   useEffect(() => {
     fetchOptions(activeDept);
   }, [activeDept, fetchOptions]);
@@ -150,7 +168,7 @@ export default function SuperAdminDashboard() {
     if (activeDept !== "overview") {
       fetchDeptData();
     }
-  }, [fetchDeptData]);
+  }, [fetchDeptData, page]);
 
   // ---------- Handlers ----------
   const handleSelectDept = (value) => {
@@ -167,6 +185,9 @@ export default function SuperAdminDashboard() {
     setCaredxLabEntries([]);
     setCaredxExpenses([]);
     setDeptSummary(null);
+    setPage(1);
+    setTotalEntries(0);
+    setTotalPages(0);
   };
 
   const handleResetFilters = () => {
@@ -175,15 +196,24 @@ export default function SuperAdminDashboard() {
     setSearchTerm("");
     setSelectedCategory(null);
     setCaredxSection("lab");
+    setPage(1);
+  };
+
+  const handlePageChange = (newPage) => {
+    if (newPage >= 1 && newPage <= totalPages) {
+      setPage(newPage);
+    }
   };
 
   const handleCategoryClick = (cat) => {
     setSelectedCategory(prev => (prev === cat ? null : cat));
+    setPage(1);
   };
 
   const handleCaredxSectionChange = (section) => {
     setCaredxSection(section);
     setSelectedCategory(null);
+    setPage(1);
   };
 
   const handleExportExcel = async () => {
@@ -253,21 +283,23 @@ export default function SuperAdminDashboard() {
   // ---------- Derived data ----------
   const currentDeptLabel = DEPARTMENTS_CONFIG.find(d => d.value === activeDept)?.label || activeDept;
 
-  // ✅ Modified categories logic – Corporate shows only Expenses
   let categories = [];
   if (departmentOptions?.categories) {
     if (activeDept === "Caredx" && caredxSection === "expenses") {
-      categories = (departmentOptions.categories.Expenses || []).filter(c => c !== "Others");
+      categories = (departmentOptions.categories.Expenses || [])
+        .filter(c => {
+          const lower = c.trim().toLowerCase();
+          return lower !== "others" && lower !== "other";
+        });
     } else if (activeDept === "Caredx" && caredxSection === "lab") {
       categories = [];
-    } else if (activeDept === "Corporate") {
-      // For Corporate Management, show only Expense categories
-      categories = (departmentOptions.categories.Expenses || []).filter(c => c !== "Others");
     } else {
-      // For all other departments, show both Income and Expenses
       const allCats = new Set();
       Object.values(departmentOptions.categories).forEach(catList => catList.forEach(c => allCats.add(c)));
-      categories = Array.from(allCats).filter(c => c !== "Others");
+      categories = Array.from(allCats).filter(c => {
+        const lower = c.trim().toLowerCase();
+        return lower !== "others" && lower !== "other";
+      });
     }
   }
 
@@ -290,6 +322,45 @@ export default function SuperAdminDashboard() {
     name: d.department,
     value: d.income + d.expenses,
   }));
+
+  // ---------- Pagination Render ----------
+  const renderPagination = () => {
+    if (totalPages <= 1) return null;
+    return (
+      <div className="pagination" style={{ display: "flex", justifyContent: "center", gap: 8, marginTop: 16, alignItems: "center" }}>
+        <button
+          className="btn btn-secondary"
+          onClick={() => handlePageChange(page - 1)}
+          disabled={page === 1}
+        >
+          Previous
+        </button>
+        <span style={{ display: "flex", alignItems: "center" }}>
+          Page {page} of {totalPages} (Total {totalEntries} entries)
+        </span>
+        <button
+          className="btn btn-secondary"
+          onClick={() => handlePageChange(page + 1)}
+          disabled={page === totalPages}
+        >
+          Next
+        </button>
+        <select
+          value={perPage}
+          onChange={(e) => {
+            setPerPage(Number(e.target.value));
+            setPage(1);
+          }}
+          style={{ marginLeft: 12, padding: "6px 10px", borderRadius: 4 }}
+        >
+          <option value={10}>10 per page</option>
+          <option value={30}>30 per page</option>
+          <option value={50}>50 per page</option>
+          <option value={100}>100 per page</option>
+        </select>
+      </div>
+    );
+  };
 
   // ---------- Render ----------
   return (
@@ -607,6 +678,7 @@ export default function SuperAdminDashboard() {
                             ))}
                           </tbody>
                         </table>
+                        {renderPagination()}
                       </div>
                     )}
                   </div>
@@ -652,6 +724,7 @@ export default function SuperAdminDashboard() {
                             ))}
                           </tbody>
                         </table>
+                        {renderPagination()}
                       </div>
                     )}
                   </div>
@@ -663,10 +736,9 @@ export default function SuperAdminDashboard() {
                 <p className="section-title" style={{ marginBottom: 12 }}>{currentDeptLabel} Finance Entries</p>
                 <FinanceTable
                   entries={deptEntries}
-                  // onEdit={() => {}}
-                  // onDelete={() => {}}
                   onView={(entry) => setViewEntry({ type: "finance", data: entry })}
                 />
+                {renderPagination()}
               </div>
             )}
           </>

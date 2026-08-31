@@ -1,3 +1,4 @@
+# backend/routes/superadmin.py
 from datetime import datetime, date
 from flask import Blueprint, request, jsonify, send_file
 from sqlalchemy import func, or_
@@ -128,7 +129,7 @@ def team_stats():
 
 
 # ----------------------------------------------------------------------
-# Overview (unchanged)
+# Overview
 # ----------------------------------------------------------------------
 @superadmin_bp.route("/overview", methods=["GET"])
 @role_required("SuperAdmin")
@@ -167,8 +168,9 @@ def overview():
             exp_query = exp_query.filter(CaredxExpense.expense_date <= end_date)
         exp_total = float(exp_query.scalar())
 
+        salary_category = DEPARTMENT_CONFIG.get("Corporate", {}).get("is_salary_category", "Personnel & Payroll")
         salary_query = db.session.query(func.coalesce(func.sum(FinanceEntry.amount), 0)).filter(
-            FinanceEntry.category == "Payroll Salaries",
+            FinanceEntry.category == salary_category,
             or_(
                 FinanceEntry.department == "Caredx",
                 (FinanceEntry.department == "Corporate") & (FinanceEntry.exec_department == "Caredx")
@@ -211,7 +213,7 @@ def overview():
 
 
 # ----------------------------------------------------------------------
-# Helpers for filtering finance entries (unchanged)
+# Helpers for filtering finance entries
 # ----------------------------------------------------------------------
 def _apply_finance_filters(query, args):
     start_date = _parse_date(args.get("start_date"))
@@ -255,7 +257,7 @@ def _apply_finance_filters(query, args):
 
 
 # ----------------------------------------------------------------------
-# Department options (unchanged)
+# Department options
 # ----------------------------------------------------------------------
 @superadmin_bp.route("/departments/<department>/options", methods=["GET"])
 @role_required("SuperAdmin")
@@ -285,7 +287,7 @@ def department_options(department):
 
 
 # ----------------------------------------------------------------------
-# Caredx helper (unchanged)
+# Caredx helper – dynamic salary category
 # ----------------------------------------------------------------------
 def _get_caredx_entries_and_summary(for_summary=False):
     start_date = _parse_date(request.args.get("start_date"))
@@ -337,11 +339,12 @@ def _get_caredx_entries_and_summary(for_summary=False):
             CaredxExpense.id.desc()
         ).all()
 
-        # 2. Salary entries from FinanceEntry – only include if category filter is None or "Payroll Salaries"
+        # 2. Salary entries from FinanceEntry – use dynamic salary category
+        salary_category = DEPARTMENT_CONFIG.get("Corporate", {}).get("is_salary_category", "Personnel & Payroll")
         salary_items = []
-        if category is None or category == "Payroll Salaries":
+        if category is None or category == salary_category:
             salary_query = FinanceEntry.query.filter(
-                FinanceEntry.category == "Payroll Salaries",
+                FinanceEntry.category == salary_category,
                 or_(
                     FinanceEntry.department == "Caredx",
                     (FinanceEntry.department == "Corporate") & (FinanceEntry.exec_department == "Caredx")
@@ -365,7 +368,7 @@ def _get_caredx_entries_and_summary(for_summary=False):
                 salary_items.append({
                     "id": -s.id,
                     "expense_date": s.entry_date.isoformat(),
-                    "category": "Payroll Salaries",
+                    "category": salary_category,
                     "amount": float(s.amount),
                     "remarks": f"Salary for {s.employee_name} ({s.exec_department}) - {s.remarks or ''}",
                     "employee_name": s.employee_name,
@@ -411,7 +414,7 @@ def _get_caredx_entries_and_summary(for_summary=False):
                 "category_breakdown": category_breakdown,
             }
 
-        # section == "expenses" (or None, but we treat as expenses)
+        # section == "expenses"
         total_expenses = sum(float(e["amount"]) for e in expenses)
         by_date = {}
         for e in expenses:
@@ -438,7 +441,7 @@ def _get_caredx_entries_and_summary(for_summary=False):
             "category_breakdown": list(by_category.values()),
         }
 
-    # ---------- Non-summary (list) response ----------
+    # ---------- Non-summary ----------
     return {
         "lab_entries": [e.to_dict() for e in lab_entries],
         "expenses": expenses
@@ -446,7 +449,7 @@ def _get_caredx_entries_and_summary(for_summary=False):
 
 
 # ----------------------------------------------------------------------
-# Department entries and summary – FIXED: Corporate now filters correctly
+# Department entries – with PAGINATION
 # ----------------------------------------------------------------------
 @superadmin_bp.route("/departments/<string:dept>/entries", methods=["GET"])
 @role_required("SuperAdmin")
@@ -457,18 +460,16 @@ def dept_entries(dept):
     if dept == "Caredx":
         return jsonify(_get_caredx_entries_and_summary(for_summary=False)), 200
 
-    # ✅ FIXED: For Corporate, first filter by department = "Corporate",
-    # then exclude salary entries for other departments.
+    salary_category = DEPARTMENT_CONFIG.get("Corporate", {}).get("is_salary_category", "Personnel & Payroll")
     if dept == "Corporate":
         query = FinanceEntry.query.filter(
             FinanceEntry.department == "Corporate",
             or_(
-                FinanceEntry.category != "Payroll Salaries",
-                (FinanceEntry.category == "Payroll Salaries") & (FinanceEntry.exec_department == "Corporate")
+                FinanceEntry.category != salary_category,
+                (FinanceEntry.category == salary_category) & (FinanceEntry.exec_department == "Corporate")
             )
         )
     else:
-        salary_category = DEPARTMENT_CONFIG.get("Corporate", {}).get("is_salary_category", "Payroll Salaries")
         query = FinanceEntry.query.filter(
             or_(
                 FinanceEntry.department == dept,
@@ -476,15 +477,37 @@ def dept_entries(dept):
             )
         )
 
-    # Apply common filters (date, entry_type, category, search, etc.)
     query = _apply_finance_filters(query, request.args)
+
+    # Pagination
+    page = request.args.get("page", 1, type=int)
+    per_page = request.args.get("per_page", 30, type=int)
+    if page < 1:
+        page = 1
+    if per_page < 1:
+        per_page = 1
+    if per_page > 100:
+        per_page = 100
+
+    total = query.count()
     query = query.order_by(FinanceEntry.entry_date.desc(), FinanceEntry.id.desc())
-    entries = query.all()
+    paginated = query.paginate(page=page, per_page=per_page, error_out=False)
+    entries = paginated.items
 
-    print(f"SuperAdmin {dept} entries count: {len(entries)}")
-    return jsonify({"entries": [e.to_dict() for e in entries]}), 200
+    return jsonify({
+        "entries": [e.to_dict() for e in entries],
+        "pagination": {
+            "page": page,
+            "per_page": per_page,
+            "total": total,
+            "pages": paginated.pages,
+        }
+    }), 200
 
 
+# ----------------------------------------------------------------------
+# Department summary
+# ----------------------------------------------------------------------
 @superadmin_bp.route("/departments/<string:dept>/summary", methods=["GET"])
 @role_required("SuperAdmin")
 def dept_summary(dept):
@@ -494,17 +517,16 @@ def dept_summary(dept):
     if dept == "Caredx":
         return jsonify(_get_caredx_entries_and_summary(for_summary=True)), 200
 
-    # ✅ FIXED: same fix as above for Corporate
+    salary_category = DEPARTMENT_CONFIG.get("Corporate", {}).get("is_salary_category", "Personnel & Payroll")
     if dept == "Corporate":
         query = FinanceEntry.query.filter(
             FinanceEntry.department == "Corporate",
             or_(
-                FinanceEntry.category != "Payroll Salaries",
-                (FinanceEntry.category == "Payroll Salaries") & (FinanceEntry.exec_department == "Corporate")
+                FinanceEntry.category != salary_category,
+                (FinanceEntry.category == salary_category) & (FinanceEntry.exec_department == "Corporate")
             )
         )
     else:
-        salary_category = DEPARTMENT_CONFIG.get("Corporate", {}).get("is_salary_category", "Payroll Salaries")
         query = FinanceEntry.query.filter(
             or_(
                 FinanceEntry.department == dept,
@@ -512,7 +534,6 @@ def dept_summary(dept):
             )
         )
 
-    # Apply date filters
     start_date = _parse_date(request.args.get("start_date"))
     end_date = _parse_date(request.args.get("end_date"))
     if start_date:
@@ -520,7 +541,6 @@ def dept_summary(dept):
     if end_date:
         query = query.filter(FinanceEntry.entry_date <= end_date)
 
-    # Additional category filter if provided
     category = request.args.get("category")
     if category:
         query = query.filter(FinanceEntry.category == category)

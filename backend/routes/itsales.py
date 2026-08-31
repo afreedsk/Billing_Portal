@@ -1,3 +1,4 @@
+# backend/routes/itsales.py
 """IT Sales department finance routes — Income/Expenses entries with categories.
 Now includes salary entries from Corporate Management.
 """
@@ -51,6 +52,7 @@ def options():
         "show_invoice": CONFIG["show_invoice"],
         "show_gst_tax": CONFIG["show_gst_tax"],
         "show_tax_invoice_number": CONFIG["show_tax_invoice_number"],
+        "is_salary_category": CONFIG.get("is_salary_category"),   # for frontend
     }), 200
 
 
@@ -71,18 +73,16 @@ def create_entry():
     remarks = (data.get("remarks") or "").strip()
     entry_date = _parse_date(data.get("entry_date"), default=date.today())
 
-    # New fields for IT Sales categories
     employee_name = (data.get("employee_name") or "").strip() or None
     purpose = (data.get("purpose") or "").strip() or None
     vehicle_type = (data.get("vehicle_type") or "").strip() or None
-
-    # Team field
-    team = (data.get("team") or "").strip() or None   # <-- ADDED
+    team = (data.get("team") or "").strip() or None
 
     errors = []
 
-    # Block salary category creation in IT Sales
-    if category == "Payroll Salaries":
+    # Block salary category creation – use dynamic salary category
+    salary_category = DEPARTMENT_CONFIG.get("Corporate", {}).get("is_salary_category", "Personnel & Payroll")
+    if category == salary_category:
         errors.append("Salaries must be entered by Corporate Management only.")
 
     if entry_type not in ENTRY_TYPES:
@@ -109,7 +109,6 @@ def create_entry():
         errors.append("amount must be a number.")
         amount = 0
 
-    # Handle GST tax percent – ensure it's None if empty
     gst_tax_percent = None
     gst_tax_amount = 0
     base_amount = amount
@@ -127,7 +126,7 @@ def create_entry():
             errors.append("GST tax percent must be number.")
 
     # Remarks mandatory for all IT Sales expense entries (except salary, which is blocked)
-    if entry_type == "Expenses" and category != "Payroll Salaries" and not remarks:
+    if entry_type == "Expenses" and category != salary_category and not remarks:
         errors.append("Remarks are required.")
 
     invoice_path = invoice_original = invoice_mimetype = None
@@ -163,7 +162,7 @@ def create_entry():
         employee_name=employee_name,
         purpose=purpose,
         vehicle_type=vehicle_type,
-        team=team,   # <-- ADDED
+        team=team,
     )
     db.session.add(entry)
     db.session.commit()
@@ -179,11 +178,12 @@ def list_entries():
     query = _apply_date_filters(query)
 
     # 2. Salary entries from Corporate with exec_department = IT Sales
+    salary_category = DEPARTMENT_CONFIG.get("Corporate", {}).get("is_salary_category", "Personnel & Payroll")
     salary_query = FinanceEntry.query.filter(
         FinanceEntry.department == "Corporate",
         FinanceEntry.exec_department == "IT Sales",
         FinanceEntry.entry_type == "Expenses",
-        FinanceEntry.category == "Payroll Salaries"
+        FinanceEntry.category == salary_category
     )
     start_date = _parse_date(request.args.get("start_date"))
     end_date = _parse_date(request.args.get("end_date"))
@@ -192,7 +192,6 @@ def list_entries():
     if end_date:
         salary_query = salary_query.filter(FinanceEntry.entry_date <= end_date)
 
-    # Combine both
     combined_query = query.union(salary_query)
 
     entry_type = request.args.get("entry_type")
@@ -212,7 +211,7 @@ def list_entries():
                 FinanceEntry.client_name.ilike(like),
                 FinanceEntry.remarks.ilike(like),
                 FinanceEntry.employee_name.ilike(like),
-                FinanceEntry.team.ilike(like),   # <-- ADDED search on team
+                FinanceEntry.team.ilike(like),
             )
         )
 
@@ -233,9 +232,10 @@ def update_entry(entry_id):
 
     errors = []
 
-    # Block changing category to Payroll Salaries
+    # Block changing category to salary category – use dynamic salary category
+    salary_category = DEPARTMENT_CONFIG.get("Corporate", {}).get("is_salary_category", "Personnel & Payroll")
     new_category = data.get("category", entry.category)
-    if new_category == "Payroll Salaries" and entry.category != "Payroll Salaries":
+    if new_category == salary_category and entry.category != salary_category:
         errors.append("Salaries must be entered by Corporate Management only.")
 
     if "entry_type" in data and data["entry_type"] in ENTRY_TYPES:
@@ -285,16 +285,13 @@ def update_entry(entry_id):
         if parsed:
             entry.entry_date = parsed
 
-    # New fields
     if "employee_name" in data:
         entry.employee_name = (data["employee_name"] or "").strip() or None
     if "purpose" in data:
         entry.purpose = (data["purpose"] or "").strip() or None
     if "vehicle_type" in data:
         entry.vehicle_type = (data["vehicle_type"] or "").strip() or None
-
-    # Team field
-    if "team" in data:   # <-- ADDED
+    if "team" in data:
         entry.team = (data["team"] or "").strip() or None
 
     invoice_file = request.files.get("invoice")
@@ -315,7 +312,7 @@ def update_entry(entry_id):
         entry.invoice_mimetype = None
 
     # Remarks mandatory for IT Sales expenses (except salary)
-    if entry.entry_type == "Expenses" and entry.category != "Payroll Salaries" and not entry.remarks:
+    if entry.entry_type == "Expenses" and entry.category != salary_category and not entry.remarks:
         errors.append("Remarks are required.")
 
     if errors:
@@ -345,11 +342,12 @@ def finance_summary():
     query = _apply_date_filters(query)
 
     # 2. Salary entries from Corporate with exec_department = IT Sales
+    salary_category = DEPARTMENT_CONFIG.get("Corporate", {}).get("is_salary_category", "Personnel & Payroll")
     salary_query = FinanceEntry.query.filter(
         FinanceEntry.department == "Corporate",
         FinanceEntry.exec_department == "IT Sales",
         FinanceEntry.entry_type == "Expenses",
-        FinanceEntry.category == "Payroll Salaries"
+        FinanceEntry.category == salary_category
     )
     start_date = _parse_date(request.args.get("start_date"))
     end_date = _parse_date(request.args.get("end_date"))
