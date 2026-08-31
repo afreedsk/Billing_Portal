@@ -239,72 +239,72 @@ export default function FinanceEntryForm({
   // Determine if using category-specific fields (skip items validation)
   const usingCategoryFields = showOfficeFields || showITFields || showITSalesFields || showMedTechFields || showPCMFields;
 
- useEffect(() => {
-  if (!open) return;
+  useEffect(() => {
+    if (!open) return;
 
-  // Helper to populate the form from an entry
-  const populateForm = (entry) => {
-    const categoryList = options?.categories?.[entry.entry_type] || [];
-    const isCustomCategory = categoryList.includes("Others") && !categoryList.includes(entry.category);
+    // Helper to populate the form from an entry
+    const populateForm = (entry) => {
+      const categoryList = options?.categories?.[entry.entry_type] || [];
+      const isCustomCategory = categoryList.includes("Others") && !categoryList.includes(entry.category);
 
-    setForm({
-      entry_type: entry.entry_type || "Income",
-      category: isCustomCategory ? "Others" : entry.category || "",
-      sub_category: entry.sub_category || "",
-      generated_by: entry.generated_by || "",
-      revenue_type: entry.revenue_type || options?.revenue_types?.[0] || "",
-      patient_name: entry.patient_name || "",
-      patient_place: entry.patient_place || "",
-      client_name: entry.client_name || "",
-      gst_number: entry.gst_number || "",
-      gst_tax_percent: entry.gst_tax_percent !== undefined && entry.gst_tax_percent !== null ? String(entry.gst_tax_percent) : "",
-      tax_invoice_number: entry.tax_invoice_number || "",
-      amount: entry.amount !== undefined && entry.amount !== null ? String(entry.amount) : "",
-      remarks: entry.remarks || "",
-      entry_date: entry.entry_date || today(),
-      exec_department: entry.exec_department || "",
-      employee_name: entry.employee_name || "",
-      salary_amount: entry.salary_amount !== undefined && entry.salary_amount !== null ? String(entry.salary_amount) : "",
-      allowance_amount: entry.allowance_amount !== undefined && entry.allowance_amount !== null ? String(entry.allowance_amount) : "",
-      vehicle_type: entry.vehicle_type || "",
-      team: entry.team || "",
-    });
-    setOtherCategory(isCustomCategory ? entry.category : "");
-    if (Array.isArray(entry.items) && entry.items.length > 0) {
-      setItems(entry.items.map((item) => ({
-        _key: nextItemKey(),
-        item_name: item.item_name || "",
-        quantity: String(item.quantity ?? "1"),
-        unit_price: String(item.unit_price ?? ""),
-      })));
+      setForm({
+        entry_type: entry.entry_type || "Income",
+        category: isCustomCategory ? "Others" : entry.category || "",
+        sub_category: entry.sub_category || "",
+        generated_by: entry.generated_by || "",
+        revenue_type: entry.revenue_type || options?.revenue_types?.[0] || "",
+        patient_name: entry.patient_name || "",
+        patient_place: entry.patient_place || "",
+        client_name: entry.client_name || "",
+        gst_number: entry.gst_number || "",
+        gst_tax_percent: entry.gst_tax_percent !== undefined && entry.gst_tax_percent !== null ? String(entry.gst_tax_percent) : "",
+        tax_invoice_number: entry.tax_invoice_number || "",
+        amount: entry.amount !== undefined && entry.amount !== null ? String(entry.amount) : "",
+        remarks: entry.remarks || "",
+        entry_date: entry.entry_date || today(),
+        exec_department: entry.exec_department || "",
+        employee_name: entry.employee_name || "",
+        salary_amount: entry.salary_amount !== undefined && entry.salary_amount !== null ? String(entry.salary_amount) : "",
+        allowance_amount: entry.allowance_amount !== undefined && entry.allowance_amount !== null ? String(entry.allowance_amount) : "",
+        vehicle_type: entry.vehicle_type || "",
+        team: entry.team || "",
+      });
+      setOtherCategory(isCustomCategory ? entry.category : "");
+      if (Array.isArray(entry.items) && entry.items.length > 0) {
+        setItems(entry.items.map((item) => ({
+          _key: nextItemKey(),
+          item_name: item.item_name || "",
+          quantity: String(item.quantity ?? "1"),
+          unit_price: String(item.unit_price ?? ""),
+        })));
+      } else {
+        setItems([emptyItem()]);
+      }
+      setEmployees([emptyEmployee()]);
+      setInvoiceFile(null);
+      setRemoveInvoice(false);
+    };
+
+    // If we have editingEntry, populate immediately (even without options)
+    if (editingEntry) {
+      populateForm(editingEntry);
     } else {
+      // New entry: reset to empty
+      setForm(createEmptyForm());
+      setOtherCategory("");
       setItems([emptyItem()]);
+      setEmployees([emptyEmployee()]);
+      setInvoiceFile(null);
+      setRemoveInvoice(false);
     }
-    setEmployees([emptyEmployee()]);
-    setInvoiceFile(null);
-    setRemoveInvoice(false);
-  };
 
-  // If we have editingEntry, populate immediately (even without options)
-  if (editingEntry) {
-    populateForm(editingEntry);
-  } else {
-    // New entry: reset to empty
-    setForm(createEmptyForm());
-    setOtherCategory("");
-    setItems([emptyItem()]);
-    setEmployees([emptyEmployee()]);
-    setInvoiceFile(null);
-    setRemoveInvoice(false);
-  }
-
-  // When options finally load, re‑populate to pick up any dropdown defaults
-  // (but only if we are still editing the same entry)
-  if (options && editingEntry) {
-    // Re‑run to set correct revenue_type, etc.
-    populateForm(editingEntry);
-  }
-}, [editingEntry, open, options]);
+    // When options finally load, re‑populate to pick up any dropdown defaults
+    // (but only if we are still editing the same entry)
+    if (options && editingEntry) {
+      // Re‑run to set correct revenue_type, etc.
+      populateForm(editingEntry);
+    }
+  }, [editingEntry, open, options]);
 
   if (!open || !options) return null;
 
@@ -666,7 +666,7 @@ export default function FinanceEntryForm({
           formData.append("vehicle_type", form.vehicle_type || "");
           formData.append("client_name", form.client_name || "");
           formData.append("gst_number", form.gst_number || "");
-          formData.append("generated_by", form.generated_by || "");   // ADDED
+          formData.append("generated_by", form.generated_by || "");
         }
         if (isMedTech && showMedTechFields) {
           formData.append("employee_name", form.employee_name || "");
@@ -693,7 +693,7 @@ export default function FinanceEntryForm({
         config = { headers: { 'Content-Type': 'multipart/form-data' } };
       } else {
         body = { ...form };
-        body.amount = parseFloat(form.amount) || 0;   // ensure it's a number
+        body.amount = parseFloat(form.amount) || 0;
         if (isOthersCategory) body.other_category = otherCategory.trim();
         if (isOfficeAdmin) {
           body.employee_name = form.employee_name || null;
@@ -778,7 +778,7 @@ export default function FinanceEntryForm({
           salary_amount: parseFloat(emp.salary_amount) || 0,
           allowance_amount: parseFloat(emp.allowance_amount) || 0,
           remarks: emp.remarks || "",
-          entry_date: form.entry_date,
+          entry_date: form.entry_date, // ✅ date from the main form
         }))
       };
       const url = `/${apiBase}/entries`;
@@ -1116,7 +1116,7 @@ export default function FinanceEntryForm({
     );
   };
 
-  // ========== UPDATED renderITSalesFields with generated_by ==========
+  // UPDATED renderITSalesFields with generated_by
   const renderITSalesFields = () => {
     if (!showITSalesFields) return null;
     const config = itSalesFieldConfig;
@@ -1241,7 +1241,6 @@ export default function FinanceEntryForm({
       </>
     );
   };
-  // =============================================================
 
   // Render function for MedTech category fields
   const renderMedTechFields = () => {
@@ -1507,7 +1506,7 @@ export default function FinanceEntryForm({
             </div>
           )}
 
-          {/* SALARY CATEGORY (for other departments) */}
+          {/* ========== SALARY CATEGORY (for other departments) ========== */}
           {isSalaryCategory && (
             <div className="form-group">
               <label className="form-label">Employees</label>
@@ -1593,6 +1592,25 @@ export default function FinanceEntryForm({
               <button type="button" onClick={handleAddEmployee} className="btn btn-secondary" style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
                 <Plus size={15} /> Add Employee
               </button>
+
+              {/* ========== DATE PICKER ADDED HERE ========== */}
+              <div className="form-row" style={{ marginTop: 12 }}>
+                <div className="form-group" style={{ flex: 1 }}>
+                  <label className="form-label">Date <span style={{ color: "red" }}>*</span></label>
+                  <input
+                    type="date"
+                    name="entry_date"
+                    value={form.entry_date}
+                    onChange={handleChange}
+                    className="form-control"
+                    required
+                  />
+                </div>
+                <div className="form-group" style={{ flex: 1 }}>
+                  {/* Empty placeholder for alignment */}
+                </div>
+              </div>
+
               <div style={{ marginTop: 12, textAlign: "right", fontWeight: "bold" }}>
                 Total Salary Expense: {formatCurrency(salaryTotal)}
               </div>

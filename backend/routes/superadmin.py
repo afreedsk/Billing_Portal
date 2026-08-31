@@ -446,7 +446,7 @@ def _get_caredx_entries_and_summary(for_summary=False):
 
 
 # ----------------------------------------------------------------------
-# Department entries and summary – FIXED: include salary entries from Corporate
+# Department entries and summary – FIXED: Corporate now filters correctly
 # ----------------------------------------------------------------------
 @superadmin_bp.route("/departments/<string:dept>/entries", methods=["GET"])
 @role_required("SuperAdmin")
@@ -457,10 +457,11 @@ def dept_entries(dept):
     if dept == "Caredx":
         return jsonify(_get_caredx_entries_and_summary(for_summary=False)), 200
 
-    # ✅ FIXED: start with FinanceEntry.query (no base filter) and use or_ to include both native and salary entries
+    # ✅ FIXED: For Corporate, first filter by department = "Corporate",
+    # then exclude salary entries for other departments.
     if dept == "Corporate":
-        # For Corporate, show all entries except salary entries that belong to other departments
         query = FinanceEntry.query.filter(
+            FinanceEntry.department == "Corporate",
             or_(
                 FinanceEntry.category != "Payroll Salaries",
                 (FinanceEntry.category == "Payroll Salaries") & (FinanceEntry.exec_department == "Corporate")
@@ -493,9 +494,10 @@ def dept_summary(dept):
     if dept == "Caredx":
         return jsonify(_get_caredx_entries_and_summary(for_summary=True)), 200
 
-    # ✅ FIXED: same as above – start with FinanceEntry.query and use or_
+    # ✅ FIXED: same fix as above for Corporate
     if dept == "Corporate":
         query = FinanceEntry.query.filter(
+            FinanceEntry.department == "Corporate",
             or_(
                 FinanceEntry.category != "Payroll Salaries",
                 (FinanceEntry.category == "Payroll Salaries") & (FinanceEntry.exec_department == "Corporate")

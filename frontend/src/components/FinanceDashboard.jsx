@@ -52,15 +52,14 @@ export default function FinanceDashboard({ department, title, roleColor }) {
         api.get(`/${apiBase}/entries`, { params }),
         api.get(`/${apiBase}/summary`, { params: { start_date: startDate, end_date: endDate } }),
       ]);
-      
-      // *** CRITICAL FIX APPLIED HERE ***
-      const entriesData = Array.isArray(entriesRes.data) 
-        ? entriesRes.data 
+
+      // Safe handling – backend returns { entries: [...] }
+      const entriesData = Array.isArray(entriesRes.data)
+        ? entriesRes.data
         : (entriesRes.data.entries || []);
-      
+
       setEntries(entriesData);
       setSummary(summaryRes.data);
-
     } catch (err) {
       toast.error("Failed to load finance data.");
     } finally {

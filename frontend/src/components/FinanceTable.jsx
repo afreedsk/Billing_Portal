@@ -1,5 +1,7 @@
 import React from "react";
+import toast from "react-hot-toast";
 import { Pencil, Trash2, FileText, Eye } from "lucide-react";
+
 import api from "../api/axios.js";
 
 const formatCurrency = (value) => {
@@ -11,22 +13,60 @@ const formatCurrency = (value) => {
   }).format(number);
 };
 
-// Compute the API origin (without trailing slash and without /api)
-const apiOrigin = (api.defaults.baseURL || "")
-  .replace(/\/api\/?$/, "")
-  .replace(/\/$/, "");
+// Get the base URL without the /api suffix (for file endpoints)
+const getApiOrigin = () => {
+  const base = api.defaults.baseURL || "";
+  return base.replace(/\/api\/?$/, "").replace(/\/$/, "");
+};
 
-// *** CRITICAL FIX: Append the JWT token to the invoice URL ***
-const invoiceHref = (entry) => {
-  if (!entry?.invoice_url) return null;
+/*
+ * View invoice through Axios using the full absolute URL.
+ * This ensures the request goes to /files/invoices/ (not /api/files/invoices/).
+ * The Axios interceptor adds the JWT Authorization header automatically.
+ */
+const handleViewInvoice = async (entry) => {
+  try {
+    if (!entry?.invoice_url) {
+      toast.error("Invoice file not found.");
+      return;
+    }
 
-  const token = localStorage.getItem("token");
-  const tokenParam = token ? `?token=${encodeURIComponent(token)}` : "";
+    // Build full URL – if already absolute, keep it; otherwise prepend origin.
+    let fullUrl = entry.invoice_url;
+    if (!fullUrl.startsWith("http://") && !fullUrl.startsWith("https://")) {
+      const origin = getApiOrigin() || window.location.origin;
+      fullUrl = `${origin}${fullUrl}`;
+    }
 
-  if (entry.invoice_url.startsWith("http://") || entry.invoice_url.startsWith("https://")) {
-    return `${entry.invoice_url}${entry.invoice_url.includes('?') ? '&' : '?'}token=${encodeURIComponent(token)}`;
+    const response = await api.get(fullUrl, {
+      responseType: "blob",
+    });
+
+    const contentType = response.headers["content-type"] || "application/pdf";
+    const blob = new Blob([response.data], { type: contentType });
+    const fileUrl = window.URL.createObjectURL(blob);
+
+    const newWindow = window.open(fileUrl, "_blank");
+    if (!newWindow) {
+      toast.error("Please allow pop-ups to view the invoice.");
+    }
+
+    // Clean up the temporary URL after a delay
+    setTimeout(() => window.URL.revokeObjectURL(fileUrl), 60000);
+  } catch (error) {
+    console.error("Invoice open error:", error);
+    const status = error.response?.status;
+
+    if (status === 401) {
+      toast.error("Session expired. Please login again.");
+    } else if (status === 403) {
+      toast.error("You are not authorized to view this invoice.");
+    } else if (status === 404) {
+      toast.error("Invoice file not found.");
+    } else {
+      toast.error("Unable to open invoice.");
+    }
   }
-  return `${apiOrigin}${entry.invoice_url}${tokenParam}`;
 };
 
 export default function FinanceTable({
@@ -38,7 +78,8 @@ export default function FinanceTable({
   if (!entries || entries.length === 0) {
     return (
       <div className="empty-state">
-        No finance entries found for this filter. Click "Add Entry" to create one.
+        No finance entries found for this filter. Click "Add Entry" to
+        create one.
       </div>
     );
   }
@@ -46,7 +87,9 @@ export default function FinanceTable({
   // Conditionally show columns based on data presence
   const showClientName = entries.some((entry) => entry?.client_name);
   const showGstNumber = entries.some((entry) => entry?.gst_number);
-  const showItems = entries.some((entry) => Array.isArray(entry?.items) && entry.items.length > 0);
+  const showItems = entries.some(
+    (entry) => Array.isArray(entry?.items) && entry.items.length > 0
+  );
   const showPatientName = entries.some((entry) => entry?.patient_name);
   const showPatientPlace = entries.some((entry) => entry?.patient_place);
   const showGeneratedBy = entries.some((entry) => entry?.generated_by);
@@ -55,9 +98,13 @@ export default function FinanceTable({
   const showSubCategory = entries.some((entry) => entry?.sub_category);
   const showExecDepartment = entries.some((entry) => entry?.exec_department);
   const showEmployeeName = entries.some((entry) => entry?.employee_name);
-  const showSalaryAmount = entries.some((entry) => entry?.salary_amount !== null && entry?.salary_amount !== undefined);
-  const showAllowanceAmount = entries.some((entry) => entry?.allowance_amount !== null && entry?.allowance_amount !== undefined);
-  const showTeam = entries.some((entry) => entry?.team); // NEW
+  const showSalaryAmount = entries.some(
+    (entry) => entry?.salary_amount !== null && entry?.salary_amount !== undefined
+  );
+  const showAllowanceAmount = entries.some(
+    (entry) => entry?.allowance_amount !== null && entry?.allowance_amount !== undefined
+  );
+  const showTeam = entries.some((entry) => entry?.team);
 
   return (
     <div className="table-responsive">
@@ -79,14 +126,13 @@ export default function FinanceTable({
             {showEmployeeName && <th>Employee</th>}
             {showSalaryAmount && <th className="text-right">Salary</th>}
             {showAllowanceAmount && <th className="text-right">Allowance</th>}
-            {showTeam && <th>Team</th>}   {/* NEW */}
+            {showTeam && <th>Team</th>}
             <th className="text-right">Amount</th>
             <th>Remarks</th>
             {showInvoice && <th>Invoice</th>}
             <th>Actions</th>
           </tr>
         </thead>
-
         <tbody>
           {entries.map((entry) => {
             const items = Array.isArray(entry.items) ? entry.items : [];
@@ -97,13 +143,19 @@ export default function FinanceTable({
               })
               .join(", ");
 
-            const invoiceUrl = invoiceHref(entry);
-
             return (
               <tr key={entry.id}>
-                <td style={{ whiteSpace: "nowrap" }}>{entry.entry_date || "—"}</td>
+                <td style={{ whiteSpace: "nowrap" }}>
+                  {entry.entry_date || "—"}
+                </td>
                 <td>
-                  <span className={`badge ${entry.entry_type === "Income" ? "badge-income" : "badge-expense"}`}>
+                  <span
+                    className={`badge ${
+                      entry.entry_type === "Income"
+                        ? "badge-income"
+                        : "badge-expense"
+                    }`}
+                  >
                     {entry.entry_type || "—"}
                   </span>
                 </td>
@@ -111,26 +163,45 @@ export default function FinanceTable({
                 {showSubCategory && <td>{entry.sub_category || "—"}</td>}
                 {showClientName && <td>{entry.client_name || "—"}</td>}
                 {showGstNumber && <td>{entry.gst_number || "—"}</td>}
-                {showItems && <td>{items.length > 0 ? `${items.length} item${items.length > 1 ? "s" : ""} — ${itemNames}` : "—"}</td>}
+                {showItems && (
+                  <td>
+                    {items.length > 0
+                      ? `${items.length} item${items.length > 1 ? "s" : ""} — ${itemNames}`
+                      : "—"}
+                  </td>
+                )}
                 {showPatientName && <td>{entry.patient_name || "—"}</td>}
                 {showPatientPlace && <td>{entry.patient_place || "—"}</td>}
                 {showGeneratedBy && <td>{entry.generated_by || "—"}</td>}
                 {showRevenueType && <td>{entry.revenue_type || "—"}</td>}
                 {showExecDepartment && <td>{entry.exec_department || "—"}</td>}
                 {showEmployeeName && <td>{entry.employee_name || "—"}</td>}
-                {showSalaryAmount && <td className="text-right">{formatCurrency(entry.salary_amount)}</td>}
-                {showAllowanceAmount && <td className="text-right">{formatCurrency(entry.allowance_amount)}</td>}
-                {showTeam && <td>{entry.team || "—"}</td>}   {/* NEW */}
+                {showSalaryAmount && (
+                  <td className="text-right">
+                    {formatCurrency(entry.salary_amount)}
+                  </td>
+                )}
+                {showAllowanceAmount && (
+                  <td className="text-right">
+                    {formatCurrency(entry.allowance_amount)}
+                  </td>
+                )}
+                {showTeam && <td>{entry.team || "—"}</td>}
                 <td className="text-right" style={{ fontWeight: 600 }}>
                   {formatCurrency(entry.amount)}
                 </td>
                 <td>{entry.remarks || "—"}</td>
                 {showInvoice && (
                   <td>
-                    {invoiceUrl ? (
-                      <a href={invoiceUrl} target="_blank" rel="noreferrer" className="btn-icon" title={entry.invoice_original_name || "View invoice"}>
+                    {entry.invoice_url ? (
+                      <button
+                        type="button"
+                        onClick={() => handleViewInvoice(entry)}
+                        className="btn-icon"
+                        title={entry.invoice_original_name || "View invoice"}
+                      >
                         <FileText size={15} />
-                      </a>
+                      </button>
                     ) : (
                       "—"
                     )}
@@ -139,17 +210,32 @@ export default function FinanceTable({
                 <td>
                   <div className="actions-cell">
                     {onView && (
-                      <button type="button" onClick={() => onView(entry)} className="btn-icon" title="View">
+                      <button
+                        type="button"
+                        onClick={() => onView(entry)}
+                        className="btn-icon"
+                        title="View"
+                      >
                         <Eye size={15} />
                       </button>
                     )}
                     {onEdit && (
-                      <button type="button" onClick={() => onEdit(entry)} className="btn-icon" title="Edit">
+                      <button
+                        type="button"
+                        onClick={() => onEdit(entry)}
+                        className="btn-icon"
+                        title="Edit"
+                      >
                         <Pencil size={15} />
                       </button>
                     )}
                     {onDelete && (
-                      <button type="button" onClick={() => onDelete(entry)} className="btn-icon btn-icon--danger" title="Delete">
+                      <button
+                        type="button"
+                        onClick={() => onDelete(entry)}
+                        className="btn-icon btn-icon--danger"
+                        title="Delete"
+                      >
                         <Trash2 size={15} />
                       </button>
                     )}
