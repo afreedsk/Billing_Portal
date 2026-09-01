@@ -7,13 +7,14 @@ import {
 } from "lucide-react";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
-  ResponsiveContainer, PieChart, Pie, Cell,
+  ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line,
 } from "recharts";
 import Navbar from "../../components/Navbar.jsx";
 import StatCards from "../../components/StatCards.jsx";
 import FinanceCharts from "../../components/FinanceCharts.jsx";
 import FinanceTable from "../../components/FinanceTable.jsx";
 import EntryViewModal from "../../components/EntryViewModal.jsx";
+import ThreeDChart from "../../components/ThreeDChart.jsx";
 import api from "../../api/axios.js";
 
 // ------------------------------------------------------------------
@@ -30,6 +31,7 @@ const DEPARTMENTS_CONFIG = [
   { label: "PCM", value: "PCM" },
   { label: "Research Development", value: "ResearchDevelopment" },
   { label: "Dental", value: "Dental" },
+  { label: "Sales Enterprise", value: "SalesEnterprise" },
 ];
 
 const PIE_COLORS = ["#2f5dd4", "#16a34a", "#d97706", "#8b5cf6", "#dc2626", "#0ea5e9", "#8b5cf6"];
@@ -56,6 +58,10 @@ export default function SuperAdminDashboard() {
   const [endDate, setEndDate] = useState(todayStr());
   const [searchTerm, setSearchTerm] = useState("");
 
+  // SalesEnterprise specific filters
+  const [selectedQuarter, setSelectedQuarter] = useState("");   // "1","2","3","4" or ""
+  const [selectedYear, setSelectedYear] = useState("");
+
   const [selectedCategory, setSelectedCategory] = useState(null);
   const [caredxSection, setCaredxSection] = useState("lab");
   const [departmentOptions, setDepartmentOptions] = useState(null);
@@ -77,9 +83,34 @@ export default function SuperAdminDashboard() {
 
   const [viewEntry, setViewEntry] = useState(null);
 
+  // ---------- Effect: update start/end when quarter/year change for SalesEnterprise ----------
+  useEffect(() => {
+    if (activeDept !== "SalesEnterprise") return;
+    if (!selectedYear) return;
+
+    const year = parseInt(selectedYear, 10);
+    let start, end;
+    if (selectedQuarter === "") {
+      start = new Date(year, 0, 1);
+      end = new Date(year, 11, 31);
+    } else {
+      const q = parseInt(selectedQuarter, 10);
+      if (q === 1) { start = new Date(year, 0, 1); end = new Date(year, 2, 31); }
+      else if (q === 2) { start = new Date(year, 3, 1); end = new Date(year, 5, 30); }
+      else if (q === 3) { start = new Date(year, 6, 1); end = new Date(year, 8, 30); }
+      else if (q === 4) { start = new Date(year, 9, 1); end = new Date(year, 11, 31); }
+      else return;
+    }
+    if (start && end) {
+      setStartDate(start.toISOString().split("T")[0]);
+      setEndDate(end.toISOString().split("T")[0]);
+    }
+  }, [selectedQuarter, selectedYear, activeDept]);
+
   // ---------- API calls ----------
   const fetchOptions = useCallback(async (dept) => {
-    if (dept === "overview") {
+    // SalesEnterprise does not have finance entry options
+    if (dept === "overview" || dept === "SalesEnterprise") {
       setDepartmentOptions(null);
       return;
     }
@@ -106,7 +137,7 @@ export default function SuperAdminDashboard() {
   }, []);
 
   const fetchDeptData = useCallback(async () => {
-    if (activeDept === "overview") return;
+    if (activeDept === "overview" || activeDept === "SalesEnterprise") return;
     setDeptLoading(true);
     try {
       const params = {
@@ -159,16 +190,12 @@ export default function SuperAdminDashboard() {
   }, [activeDept, fetchOptions]);
 
   useEffect(() => {
-    if (activeDept === "overview") {
+    if (activeDept === "overview" || activeDept === "SalesEnterprise") {
       fetchOverview(startDate, endDate);
-    }
-  }, [activeDept, startDate, endDate, fetchOverview]);
-
-  useEffect(() => {
-    if (activeDept !== "overview") {
+    } else {
       fetchDeptData();
     }
-  }, [fetchDeptData, page]);
+  }, [activeDept, startDate, endDate, fetchOverview, fetchDeptData]);
 
   // ---------- Handlers ----------
   const handleSelectDept = (value) => {
@@ -176,11 +203,14 @@ export default function SuperAdminDashboard() {
     if (!config) return;
     setActiveDept(config.value);
     setActiveExtra(config.extra || null);
+    // Reset filters
     setStartDate(firstOfMonth());
     setEndDate(todayStr());
     setSearchTerm("");
     setSelectedCategory(null);
     setCaredxSection("lab");
+    setSelectedQuarter("");
+    setSelectedYear("");
     setDeptEntries([]);
     setCaredxLabEntries([]);
     setCaredxExpenses([]);
@@ -196,6 +226,8 @@ export default function SuperAdminDashboard() {
     setSearchTerm("");
     setSelectedCategory(null);
     setCaredxSection("lab");
+    setSelectedQuarter("");
+    setSelectedYear("");
     setPage(1);
   };
 
@@ -384,6 +416,7 @@ export default function SuperAdminDashboard() {
             </select>
           </div>
 
+          {/* Always show date inputs – they are set by quarter/year for SalesEnterprise */}
           <div className="form-group" style={{ marginBottom: 0 }}>
             <label className="form-label">Start Date</label>
             <input
@@ -403,11 +436,46 @@ export default function SuperAdminDashboard() {
             />
           </div>
 
+          {/* SalesEnterprise specific filters */}
+          {activeDept === "SalesEnterprise" && (
+            <>
+              <div className="form-group" style={{ marginBottom: 0 }}>
+                <label className="form-label">Quarter</label>
+                <select
+                  className="form-control"
+                  value={selectedQuarter}
+                  onChange={(e) => setSelectedQuarter(e.target.value)}
+                >
+                  <option value="">All</option>
+                  <option value="1">Q1 (Jan–Mar)</option>
+                  <option value="2">Q2 (Apr–Jun)</option>
+                  <option value="3">Q3 (Jul–Sep)</option>
+                  <option value="4">Q4 (Oct–Dec)</option>
+                </select>
+              </div>
+              <div className="form-group" style={{ marginBottom: 0 }}>
+                <label className="form-label">Year</label>
+                <select
+                  className="form-control"
+                  value={selectedYear}
+                  onChange={(e) => setSelectedYear(e.target.value)}
+                >
+                  <option value="">Select Year</option>
+                  {Array.from({ length: 10 }, (_, i) => {
+                    const y = new Date().getFullYear() - i;
+                    return <option key={y} value={y}>{y}</option>;
+                  })}
+                </select>
+              </div>
+            </>
+          )}
+
           <button type="button" onClick={handleResetFilters} className="btn btn-secondary">
             <RotateCcw size={15} /> Reset
           </button>
 
-          {activeDept !== "overview" && (
+          {/* Only show search/export/import for non-overview and non-SalesEnterprise departments */}
+          {activeDept !== "overview" && activeDept !== "SalesEnterprise" && (
             <>
               <div className="form-group" style={{ marginBottom: 0, flex: 1, minWidth: 200 }}>
                 <label className="form-label">Search</label>
@@ -439,8 +507,8 @@ export default function SuperAdminDashboard() {
           )}
         </div>
 
-        {/* Overview Mode */}
-        {activeDept === "overview" && (
+        {/* ========== OVERVIEW / SALESENTERPRISE VIEW ========== */}
+        {(activeDept === "overview" || activeDept === "SalesEnterprise") && (
           <>
             {/* ========== SUMMARY PANEL ========== */}
             <p className="section-title" style={{ marginBottom: 8 }}>Summary Panel</p>
@@ -475,7 +543,7 @@ export default function SuperAdminDashboard() {
               </div>
             </div>
 
-            {/* ========== CATEGORIES PANEL ========== */}
+            {/* ========== CATEGORIES PANEL (Department Cards) ========== */}
             {overview?.by_department && (
               <>
                 <p className="section-title" style={{ marginBottom: 8 }}>Categories Panel</p>
@@ -522,49 +590,115 @@ export default function SuperAdminDashboard() {
             {overview?.by_department && (
               <>
                 <p className="section-title" style={{ marginBottom: 8 }}>Display Panel</p>
-                <div className="chart-grid">
-                  <div className="card chart-card">
-                    <h3>Income vs Expenses by Department</h3>
-                    <ResponsiveContainer width="100%" height={280}>
-                      <BarChart data={overview.by_department}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="#eef0f4" />
-                        <XAxis dataKey="department" tick={{ fontSize: 12, fill: "#9ca3af" }} />
-                        <YAxis tick={{ fontSize: 11, fill: "#9ca3af" }} />
-                        <Tooltip formatter={(v) => formatCurrency(v)} />
-                        <Legend />
-                        <Bar dataKey="income" fill="#16a34a" name="Income" radius={[4, 4, 0, 0]} />
-                        <Bar dataKey="expenses" fill="#dc2626" name="Expenses" radius={[4, 4, 0, 0]} />
-                      </BarChart>
-                    </ResponsiveContainer>
+                {activeDept === "SalesEnterprise" ? (
+                  // 4‑chart grid for SalesEnterprise
+                  <div className="chart-grid" style={{ gridTemplateColumns: "1fr 1fr" }}>
+                    {/* Pie Chart */}
+                    <div className="card chart-card">
+                      <h3>Department Share of Total Volume</h3>
+                      <ResponsiveContainer width="100%" height={280}>
+                        <PieChart>
+                          <Pie
+                            data={pieData}
+                            dataKey="value"
+                            nameKey="name"
+                            cx="50%" cy="50%"
+                            outerRadius={90}
+                            label={(entry) => entry.name}
+                          >
+                            {pieData.map((_, idx) => (
+                              <Cell key={idx} fill={PIE_COLORS[idx % PIE_COLORS.length]} />
+                            ))}
+                          </Pie>
+                          <Tooltip formatter={(v) => formatCurrency(v)} />
+                        </PieChart>
+                      </ResponsiveContainer>
+                    </div>
+
+                    {/* Line Chart (Trend) */}
+                    <div className="card chart-card">
+                      <h3>Income vs Expenses by Department</h3>
+                      <ResponsiveContainer width="100%" height={280}>
+                        <LineChart data={overview.by_department}>
+                          <CartesianGrid strokeDasharray="3 3" />
+                          <XAxis dataKey="department" />
+                          <YAxis />
+                          <Tooltip formatter={(v) => formatCurrency(v)} />
+                          <Legend />
+                          <Line type="monotone" dataKey="income" stroke="#16a34a" name="Income" />
+                          <Line type="monotone" dataKey="expenses" stroke="#dc2626" name="Expenses" />
+                        </LineChart>
+                      </ResponsiveContainer>
+                    </div>
+
+                    {/* Bar Chart */}
+                    <div className="card chart-card">
+                      <h3>Income vs Expenses (Bar)</h3>
+                      <ResponsiveContainer width="100%" height={280}>
+                        <BarChart data={overview.by_department}>
+                          <CartesianGrid strokeDasharray="3 3" />
+                          <XAxis dataKey="department" />
+                          <YAxis />
+                          <Tooltip formatter={(v) => formatCurrency(v)} />
+                          <Legend />
+                          <Bar dataKey="income" fill="#16a34a" name="Income" />
+                          <Bar dataKey="expenses" fill="#dc2626" name="Expenses" />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+
+                    {/* 3D Chart */}
+                    <div className="card chart-card">
+                      <h3>3D Revenue View</h3>
+                      <ThreeDChart data={overview.by_department.map(d => ({ category: d.department, amount: d.income + d.expenses }))} />
+                    </div>
                   </div>
-                  <div className="card chart-card">
-                    <h3>Department Share of Total Volume</h3>
-                    <ResponsiveContainer width="100%" height={280}>
-                      <PieChart>
-                        <Pie
-                          data={pieData}
-                          dataKey="value"
-                          nameKey="name"
-                          cx="50%" cy="50%"
-                          outerRadius={90}
-                          label={(entry) => entry.name}
-                        >
-                          {pieData.map((_, idx) => (
-                            <Cell key={idx} fill={PIE_COLORS[idx % PIE_COLORS.length]} />
-                          ))}
-                        </Pie>
-                        <Tooltip formatter={(v) => formatCurrency(v)} />
-                      </PieChart>
-                    </ResponsiveContainer>
+                ) : (
+                  // Original 2‑chart grid for Overview
+                  <div className="chart-grid">
+                    <div className="card chart-card">
+                      <h3>Income vs Expenses by Department</h3>
+                      <ResponsiveContainer width="100%" height={280}>
+                        <BarChart data={overview.by_department}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="#eef0f4" />
+                          <XAxis dataKey="department" tick={{ fontSize: 12, fill: "#9ca3af" }} />
+                          <YAxis tick={{ fontSize: 11, fill: "#9ca3af" }} />
+                          <Tooltip formatter={(v) => formatCurrency(v)} />
+                          <Legend />
+                          <Bar dataKey="income" fill="#16a34a" name="Income" radius={[4, 4, 0, 0]} />
+                          <Bar dataKey="expenses" fill="#dc2626" name="Expenses" radius={[4, 4, 0, 0]} />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+                    <div className="card chart-card">
+                      <h3>Department Share of Total Volume</h3>
+                      <ResponsiveContainer width="100%" height={280}>
+                        <PieChart>
+                          <Pie
+                            data={pieData}
+                            dataKey="value"
+                            nameKey="name"
+                            cx="50%" cy="50%"
+                            outerRadius={90}
+                            label={(entry) => entry.name}
+                          >
+                            {pieData.map((_, idx) => (
+                              <Cell key={idx} fill={PIE_COLORS[idx % PIE_COLORS.length]} />
+                            ))}
+                          </Pie>
+                          <Tooltip formatter={(v) => formatCurrency(v)} />
+                        </PieChart>
+                      </ResponsiveContainer>
+                    </div>
                   </div>
-                </div>
+                )}
               </>
             )}
           </>
         )}
 
-        {/* Department Mode */}
-        {activeDept !== "overview" && (
+        {/* ========== OTHER DEPARTMENTS (non-overview, non-SalesEnterprise) ========== */}
+        {activeDept !== "overview" && activeDept !== "SalesEnterprise" && (
           <>
             {/* ========== SUMMARY PANEL ========== */}
             {deptSummary && (

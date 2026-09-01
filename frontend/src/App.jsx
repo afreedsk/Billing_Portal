@@ -11,6 +11,7 @@ import SuperAdminDashboard from "./pages/dashboards/SuperAdminDashboard.jsx";
 import CorporateDashboard from "./pages/dashboards/CorporateDashboard.jsx";
 import AdminFunctionalUnitDashboard from "./pages/dashboards/AdminFunctionalUnitDashboard.jsx";
 import ResearchDevelopmentDashboard from "./pages/dashboards/ResearchDevelopmentDashboard.jsx";
+import SalesEnterpriseDashboard from "./pages/dashboards/SalesEnterpriseDashboard.jsx";
 
 export default function App() {
   return (
@@ -81,6 +82,14 @@ export default function App() {
           </ProtectedRoute>
         }
       />
+      <Route
+  path="/dashboard/salesenterprise"
+  element={
+    <ProtectedRoute allowedRoles={["SalesEnterprise"]}>
+      <SalesEnterpriseDashboard />
+    </ProtectedRoute>
+  }
+/>
       <Route
         path="/dashboard/admin"
         element={

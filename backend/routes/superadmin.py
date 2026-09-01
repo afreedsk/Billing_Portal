@@ -6,6 +6,7 @@ from flask_jwt_extended import get_jwt_identity
 
 from models import (
     db, User, FinanceEntry, CaredxLabEntry, CaredxExpense,
+    SalesEnterpriseKPI,  # new
     ROLES, VALID_DEPARTMENTS, ENTRY_TYPES, DEPARTMENT_CONFIG,
 )
 from utils import role_required
@@ -24,6 +25,33 @@ def _parse_date(value, default=None):
         return datetime.strptime(value, "%Y-%m-%d").date()
     except ValueError:
         return default
+
+
+def _parse_quarter_year(quarter, year):
+    """Return (start_date, end_date) for a given quarter (1-4) and year (YYYY)."""
+    if not year:
+        return None, None
+    year = int(year)
+    if quarter is None or quarter == "":
+        start = datetime(year, 1, 1).date()
+        end = datetime(year, 12, 31).date()
+    else:
+        quarter = int(quarter)
+        if quarter == 1:
+            start = datetime(year, 1, 1).date()
+            end = datetime(year, 3, 31).date()
+        elif quarter == 2:
+            start = datetime(year, 4, 1).date()
+            end = datetime(year, 6, 30).date()
+        elif quarter == 3:
+            start = datetime(year, 7, 1).date()
+            end = datetime(year, 9, 30).date()
+        elif quarter == 4:
+            start = datetime(year, 10, 1).date()
+            end = datetime(year, 12, 31).date()
+        else:
+            return None, None
+    return start, end
 
 
 # ----------------------------------------------------------------------
@@ -129,7 +157,7 @@ def team_stats():
 
 
 # ----------------------------------------------------------------------
-# Overview
+# Overview – EXCLUDES SalesEnterprise
 # ----------------------------------------------------------------------
 @superadmin_bp.route("/overview", methods=["GET"])
 @role_required("SuperAdmin")
@@ -186,6 +214,9 @@ def overview():
 
     by_department = []
     for dept in VALID_DEPARTMENTS:
+        # Skip SalesEnterprise entirely
+        if dept == "SalesEnterprise":
+            continue
         if dept == "Caredx":
             income = caredx_income(start_date, end_date)
             expenses = caredx_expenses(start_date, end_date)
@@ -321,7 +352,6 @@ def _get_caredx_entries_and_summary(for_summary=False):
         ).all()
 
     if section is None or section == "expenses":
-        # 1. Regular Caredx expenses
         exp_query = CaredxExpense.query
         if start_date:
             exp_query = exp_query.filter(CaredxExpense.expense_date >= start_date)
@@ -339,7 +369,6 @@ def _get_caredx_entries_and_summary(for_summary=False):
             CaredxExpense.id.desc()
         ).all()
 
-        # 2. Salary entries from FinanceEntry – use dynamic salary category
         salary_category = DEPARTMENT_CONFIG.get("Corporate", {}).get("is_salary_category", "Personnel & Payroll")
         salary_items = []
         if category is None or category == salary_category:
@@ -377,12 +406,10 @@ def _get_caredx_entries_and_summary(for_summary=False):
                     "_isSalary": True,
                 })
 
-        # 3. Merge and sort
         all_expenses = [e.to_dict() for e in caredx_expenses] + salary_items
         all_expenses.sort(key=lambda x: x["expense_date"], reverse=True)
         expenses = all_expenses
 
-    # ---------- Summary response ----------
     if for_summary:
         if section == "lab":
             total_income = sum(float(e.total_amount_paid) for e in lab_entries)
@@ -414,7 +441,6 @@ def _get_caredx_entries_and_summary(for_summary=False):
                 "category_breakdown": category_breakdown,
             }
 
-        # section == "expenses"
         total_expenses = sum(float(e["amount"]) for e in expenses)
         by_date = {}
         for e in expenses:
@@ -441,7 +467,6 @@ def _get_caredx_entries_and_summary(for_summary=False):
             "category_breakdown": list(by_category.values()),
         }
 
-    # ---------- Non-summary ----------
     return {
         "lab_entries": [e.to_dict() for e in lab_entries],
         "expenses": expenses
@@ -449,7 +474,7 @@ def _get_caredx_entries_and_summary(for_summary=False):
 
 
 # ----------------------------------------------------------------------
-# Department entries – with PAGINATION
+# Department entries – with PAGINATION (for all non-SalesEnterprise depts)
 # ----------------------------------------------------------------------
 @superadmin_bp.route("/departments/<string:dept>/entries", methods=["GET"])
 @role_required("SuperAdmin")
@@ -459,6 +484,9 @@ def dept_entries(dept):
 
     if dept == "Caredx":
         return jsonify(_get_caredx_entries_and_summary(for_summary=False)), 200
+
+    start_date = _parse_date(request.args.get("start_date"))
+    end_date = _parse_date(request.args.get("end_date"))
 
     salary_category = DEPARTMENT_CONFIG.get("Corporate", {}).get("is_salary_category", "Personnel & Payroll")
     if dept == "Corporate":
@@ -477,9 +505,38 @@ def dept_entries(dept):
             )
         )
 
-    query = _apply_finance_filters(query, request.args)
+    if start_date:
+        query = query.filter(FinanceEntry.entry_date >= start_date)
+    if end_date:
+        query = query.filter(FinanceEntry.entry_date <= end_date)
 
-    # Pagination
+    entry_type = request.args.get("entry_type")
+    if entry_type in ENTRY_TYPES:
+        query = query.filter(FinanceEntry.entry_type == entry_type)
+
+    category = request.args.get("category")
+    if category:
+        query = query.filter(FinanceEntry.category == category)
+
+    revenue_type = request.args.get("revenue_type")
+    if revenue_type:
+        query = query.filter(FinanceEntry.revenue_type == revenue_type)
+
+    search = request.args.get("search")
+    if search:
+        like = f"%{search}%"
+        query = query.filter(
+            or_(
+                FinanceEntry.remarks.ilike(like),
+                FinanceEntry.generated_by.ilike(like),
+                FinanceEntry.client_name.ilike(like),
+                FinanceEntry.patient_name.ilike(like),
+                FinanceEntry.patient_place.ilike(like),
+                FinanceEntry.gst_number.ilike(like),
+                FinanceEntry.category.ilike(like),
+            )
+        )
+
     page = request.args.get("page", 1, type=int)
     per_page = request.args.get("per_page", 30, type=int)
     if page < 1:
@@ -506,7 +563,7 @@ def dept_entries(dept):
 
 
 # ----------------------------------------------------------------------
-# Department summary
+# Department summary (for all non-SalesEnterprise depts)
 # ----------------------------------------------------------------------
 @superadmin_bp.route("/departments/<string:dept>/summary", methods=["GET"])
 @role_required("SuperAdmin")
@@ -516,6 +573,9 @@ def dept_summary(dept):
 
     if dept == "Caredx":
         return jsonify(_get_caredx_entries_and_summary(for_summary=True)), 200
+
+    start_date = _parse_date(request.args.get("start_date"))
+    end_date = _parse_date(request.args.get("end_date"))
 
     salary_category = DEPARTMENT_CONFIG.get("Corporate", {}).get("is_salary_category", "Personnel & Payroll")
     if dept == "Corporate":
@@ -534,8 +594,6 @@ def dept_summary(dept):
             )
         )
 
-    start_date = _parse_date(request.args.get("start_date"))
-    end_date = _parse_date(request.args.get("end_date"))
     if start_date:
         query = query.filter(FinanceEntry.entry_date >= start_date)
     if end_date:
@@ -596,7 +654,33 @@ def department_export(department):
     else:
         config = DEPARTMENT_CONFIG[department]
         query = FinanceEntry.query.filter_by(department=department)
-        query = _apply_finance_filters(query, request.args)
+        # Apply filters
+        start_date = _parse_date(request.args.get("start_date"))
+        end_date = _parse_date(request.args.get("end_date"))
+        if start_date:
+            query = query.filter(FinanceEntry.entry_date >= start_date)
+        if end_date:
+            query = query.filter(FinanceEntry.entry_date <= end_date)
+        category = request.args.get("category")
+        if category:
+            query = query.filter(FinanceEntry.category == category)
+        revenue_type = request.args.get("revenue_type")
+        if revenue_type:
+            query = query.filter(FinanceEntry.revenue_type == revenue_type)
+        search = request.args.get("search")
+        if search:
+            like = f"%{search}%"
+            query = query.filter(
+                or_(
+                    FinanceEntry.remarks.ilike(like),
+                    FinanceEntry.generated_by.ilike(like),
+                    FinanceEntry.client_name.ilike(like),
+                    FinanceEntry.patient_name.ilike(like),
+                    FinanceEntry.patient_place.ilike(like),
+                    FinanceEntry.gst_number.ilike(like),
+                    FinanceEntry.category.ilike(like),
+                )
+            )
         entries = query.order_by(FinanceEntry.entry_date.asc(), FinanceEntry.id.asc()).all()
         buffer = build_finance_entries_workbook(entries, config, department)
         filename = f"{department}_Finance_Entries_{date.today().isoformat()}.xlsx"
@@ -684,3 +768,19 @@ def department_import(department):
         "imported": len(rows),
         "errors": errors,
     }), 201
+
+
+# ===================== NEW: SalesEnterprise KPI endpoint =====================
+@superadmin_bp.route("/salesenterprise/kpis", methods=["GET"])
+@role_required("SuperAdmin")
+def get_salesenterprise_kpis():
+    """Return KPIs for SalesEnterprise, filtered by year and/or quarter."""
+    year = request.args.get("year", type=int)
+    quarter = request.args.get("quarter")  # "Q1" etc.
+    query = SalesEnterpriseKPI.query
+    if year:
+        query = query.filter_by(year=year)
+    if quarter:
+        query = query.filter_by(quarter=quarter)
+    kpis = query.order_by(SalesEnterpriseKPI.year.desc(), SalesEnterpriseKPI.quarter.desc()).all()
+    return jsonify({"kpis": [k.to_dict() for k in kpis]}), 200

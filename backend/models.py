@@ -5,9 +5,16 @@ from werkzeug.security import generate_password_hash, check_password_hash
 
 db = SQLAlchemy()
 
-ROLES = ["SuperAdmin", "admin", "IT", "IT Sales", "PCM", "MedTech", "Caredx", "Corporate", "Adminstrationfunctionalunit", "ResearchDevelopment", "Dental"]
+# ---------- ROLES (updated to include SalesEnterprise) ----------
+ROLES = [
+    "SuperAdmin", "admin", "IT", "IT Sales", "PCM", "MedTech",
+    "Caredx", "Corporate", "Adminstrationfunctionalunit",
+    "ResearchDevelopment", "Dental", "SalesEnterprise"
+]
+
 ENTRY_TYPES = ["Income", "Expenses"]
 
+# ---------- DEPARTMENT_CONFIG (unchanged, SalesEnterprise is NOT here) ----------
 DEPARTMENT_CONFIG = {
     # =================== IT ===================
     "IT": {
@@ -149,7 +156,7 @@ DEPARTMENT_CONFIG = {
         "show_tax_invoice_number": False,
     },
 
-    # =================== PCM (UPDATED) ===================
+    # =================== PCM ===================
     "PCM": {
         "categories": {
             "Income": [
@@ -162,9 +169,7 @@ DEPARTMENT_CONFIG = {
                 "Personnel & Payroll",
                 "Outsourced Services",
                 "Facilities & Overhead",
-                # "Travel & Entertainment" REMOVED
                 "Marketing",
-                # "Office Supplies & Equipment" REMOVED
                 "Guest Concierge",
                 "Events-Conferences-Training",
                 "Business Services Revenue",
@@ -172,7 +177,6 @@ DEPARTMENT_CONFIG = {
                 "General Operations",
                 "Innovation",
                 "Supplies & Equipment",
-                # "Legal Governance" REMOVED
                 "Other"
             ]
         },
@@ -188,7 +192,6 @@ DEPARTMENT_CONFIG = {
         "show_gst_tax": False,
         "show_tax_invoice_number": False,
     },
-    # ====================================================
 
     # =================== MedTech ===================
     "MedTech": {
@@ -326,11 +329,12 @@ DEPARTMENT_CONFIG = {
     },
 }
 
-VALID_DEPARTMENTS = list(DEPARTMENT_CONFIG.keys())
+# Note: SalesEnterprise is NOT in DEPARTMENT_CONFIG – it uses its own table.
+VALID_DEPARTMENTS = list(DEPARTMENT_CONFIG.keys())   # does NOT include SalesEnterprise
+
 
 # ------------------------------------------------------------
-# User, FinanceEntry, FinanceEntryItem, CaredxLabEntry, CaredxExpense
-# models – unchanged
+# User model
 # ------------------------------------------------------------
 class User(db.Model):
     __tablename__ = "users"
@@ -362,6 +366,9 @@ class User(db.Model):
         }
 
 
+# ------------------------------------------------------------
+# FinanceEntry model
+# ------------------------------------------------------------
 class FinanceEntry(db.Model):
     __tablename__ = "finance_entries"
     id = db.Column(db.Integer, primary_key=True)
@@ -451,6 +458,9 @@ class FinanceEntry(db.Model):
         }
 
 
+# ------------------------------------------------------------
+# FinanceEntryItem model
+# ------------------------------------------------------------
 class FinanceEntryItem(db.Model):
     __tablename__ = "finance_entry_items"
     id = db.Column(db.Integer, primary_key=True)
@@ -471,6 +481,9 @@ class FinanceEntryItem(db.Model):
         }
 
 
+# ------------------------------------------------------------
+# CaredxLabEntry model
+# ------------------------------------------------------------
 class CaredxLabEntry(db.Model):
     __tablename__ = "caredx_lab_entries"
     id = db.Column(db.Integer, primary_key=True)
@@ -513,6 +526,9 @@ class CaredxLabEntry(db.Model):
         }
 
 
+# ------------------------------------------------------------
+# CaredxExpense model
+# ------------------------------------------------------------
 class CaredxExpense(db.Model):
     __tablename__ = "caredx_expenses"
     id = db.Column(db.Integer, primary_key=True)
@@ -542,7 +558,61 @@ class CaredxExpense(db.Model):
 
 
 # ============================================================
-# MIGRATIONS
+# NEW: SalesEnterpriseKPI model (uses separate table)
+# ============================================================
+class SalesEnterpriseKPI(db.Model):
+    __tablename__ = "sales_enterprise_kpis"
+    id = db.Column(db.Integer, primary_key=True)
+    year = db.Column(db.Integer, nullable=False)
+    quarter = db.Column(db.String(2), nullable=False)  # "Q1","Q2","Q3","Q4"
+
+    # Growth KPIs
+    revenue_growth = db.Column(db.Numeric(8, 2), nullable=True)
+    win_rate = db.Column(db.Numeric(8, 2), nullable=True)
+    stage_conversion = db.Column(db.Numeric(8, 2), nullable=True)
+    pipeline_coverage = db.Column(db.Numeric(8, 2), nullable=True)
+
+    # Efficiency KPIs
+    sales_cycle_length = db.Column(db.Numeric(8, 2), nullable=True)
+    cac = db.Column(db.Numeric(14, 2), nullable=True)
+    rep_productivity = db.Column(db.Numeric(14, 2), nullable=True)
+    ramp_time = db.Column(db.Numeric(8, 2), nullable=True)
+    lead_response_time = db.Column(db.Numeric(8, 2), nullable=True)
+
+    # Predictability KPIs
+    nrr = db.Column(db.Numeric(8, 2), nullable=True)
+    quota_attainment = db.Column(db.Numeric(8, 2), nullable=True)
+    forecast_accuracy = db.Column(db.Numeric(8, 2), nullable=True)
+
+    created_by_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    __table_args__ = (db.UniqueConstraint('year', 'quarter', name='uq_sales_kpi_year_quarter'),)
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "year": self.year,
+            "quarter": self.quarter,
+            "revenue_growth": float(self.revenue_growth) if self.revenue_growth is not None else None,
+            "win_rate": float(self.win_rate) if self.win_rate is not None else None,
+            "stage_conversion": float(self.stage_conversion) if self.stage_conversion is not None else None,
+            "pipeline_coverage": float(self.pipeline_coverage) if self.pipeline_coverage is not None else None,
+            "sales_cycle_length": float(self.sales_cycle_length) if self.sales_cycle_length is not None else None,
+            "cac": float(self.cac) if self.cac is not None else None,
+            "rep_productivity": float(self.rep_productivity) if self.rep_productivity is not None else None,
+            "ramp_time": float(self.ramp_time) if self.ramp_time is not None else None,
+            "lead_response_time": float(self.lead_response_time) if self.lead_response_time is not None else None,
+            "nrr": float(self.nrr) if self.nrr is not None else None,
+            "quota_attainment": float(self.quota_attainment) if self.quota_attainment is not None else None,
+            "forecast_accuracy": float(self.forecast_accuracy) if self.forecast_accuracy is not None else None,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+# ============================================================
+# MIGRATIONS (existing)
 # ============================================================
 
 def migrate_corporate_categories():
@@ -755,31 +825,25 @@ def migrate_medtech_categories():
 
 
 def migrate_pcm_categories():
-    """Rename existing PCM entries from old category names to new ones.
-    Also removes 'Office Supplies & Equipment' by mapping to 'Supplies & Equipment',
-    fixes the 'Field Labour and Nursing Care' spelling, and removes the
-    'Travel and Mileage Reimbursement' income category by remapping existing
-    rows to 'Back Office Logistics'.
-    """
+    """Rename existing PCM entries from old category names to new ones."""
     from sqlalchemy import update
     category_map = {
         "Payroll Salaries": "Personnel & Payroll",
-        "Travel & Entertainment": "Miscellaneous",          # removed – map to Misc
+        "Travel & Entertainment": "Miscellaneous",
         "Marketing Expenses": "Marketing",
-        "Assets & Infra Cost": "Supplies & Equipment",     # map to Supplies & Equipment (since Office Supplies & Equipment removed)
+        "Assets & Infra Cost": "Supplies & Equipment",
         "Office Management": "Facilities & Overhead",
         "Service Revenue": "Business Services Revenue",
         "Miscellaneous Categories": "Miscellaneous",
         "Legal Governance": "Miscellaneous",
-        "Office Supplies & Equipment": "Supplies & Equipment",  # <-- REMOVED – map to Supplies & Equipment
+        "Office Supplies & Equipment": "Supplies & Equipment",
         "Point-of-Care Technology and Telecom": "Digital Health",
         "Home Medical Supplies and DME": "Equipment & Supplies",
         "Intake, Scheduling, and Back-Office Logistics": "Back Office Logistics",
         "Regulatory and Risk Management": "Miscellaneous",
         "Supplies and Equipments": "Supplies & Equipment",
-        "Field Labor and Nursing Care": "Field Labour and Nursing Care",  # <-- NEW: spelling fix
-        "Travel and Mileage Reimbursement": "Back Office Logistics",      # <-- NEW: field removed, remap existing rows
-        # Keep "General Operations", "Innovation" as is
+        "Field Labor and Nursing Care": "Field Labour and Nursing Care",
+        "Travel and Mileage Reimbursement": "Back Office Logistics",
     }
     migrated = 0
     for old, new in category_map.items():

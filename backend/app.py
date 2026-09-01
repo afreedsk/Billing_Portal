@@ -9,6 +9,7 @@ from config import Config
 from models import db, migrate_corporate_categories
 
 
+
 def create_app():
     app = Flask(__name__)
     app.config.from_object(Config)
@@ -45,6 +46,7 @@ def create_app():
     from routes.adminfunctionalunit import adminfunctionalunit_bp
     from routes.researchdevelopment import researchdevelopment_bp
     from routes.itsales import itsales_bp
+    from routes.salesenterprise import salesenterprise_bp
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(it_bp)
@@ -57,6 +59,7 @@ def create_app():
     app.register_blueprint(adminfunctionalunit_bp)
     app.register_blueprint(researchdevelopment_bp)
     app.register_blueprint(itsales_bp)
+    app.register_blueprint(salesenterprise_bp)
 
     @app.route("/api/health", methods=["GET"])
     def health():

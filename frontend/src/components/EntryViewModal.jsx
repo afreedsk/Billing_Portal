@@ -73,4 +73,4 @@ export default function EntryViewModal({ entry, type, onClose }) {
       </div>
     </div>
   );
-}
+} 
