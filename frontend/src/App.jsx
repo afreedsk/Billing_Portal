@@ -1,6 +1,7 @@
 import React from "react";
 import { Routes, Route } from "react-router-dom";
 import Login from "./pages/Login.jsx";
+import ForgotPassword from "./pages/ForgotPassword.jsx"; // new
 import ProtectedRoute from "./components/ProtectedRoute.jsx";
 import ITDashboard from "./pages/dashboards/ITDashboard.jsx";
 import ITSalesDashboard from "./pages/dashboards/ITSalesDashboard.jsx";
@@ -17,6 +18,7 @@ export default function App() {
   return (
     <Routes>
       <Route path="/" element={<Login />} />
+      <Route path="/forgot-password" element={<ForgotPassword />} />
 
       <Route
         path="/dashboard/it"

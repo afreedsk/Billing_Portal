@@ -1,3 +1,4 @@
+// frontend/src/pages/Login.jsx
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Lock, Mail, Eye, EyeOff, ShieldCheck } from "lucide-react";
@@ -31,7 +32,6 @@ export default function Login() {
         return;
       }
       toast.success(`Welcome, ${result.user.name}!`);
-      // *** FIX: Use the ROLE_ROUTES mapping instead of hardcoding to '/superadmin' ***
       const destination = ROLE_ROUTES[result.user.role] || "/";
       navigate(destination);
     } else {
@@ -48,7 +48,6 @@ export default function Login() {
     const result = await login(email, password, { otp, temp_token: tempToken });
     if (result.success) {
       toast.success(`Welcome, ${result.user.name}!`);
-      // *** FIX: Use the ROLE_ROUTES mapping instead of hardcoding to '/superadmin' ***
       const destination = ROLE_ROUTES[result.user.role] || "/";
       navigate(destination);
     } else {
@@ -91,6 +90,16 @@ export default function Login() {
               <button type="submit" disabled={loading} className="btn btn-primary btn-block">
                 {loading ? "Signing in..." : "Sign In"}
               </button>
+              <div style={{ textAlign: "center", marginTop: 12 }}>
+                <button
+                  type="button"
+                  className="btn-link"
+                  onClick={() => navigate("/forgot-password")}
+                  style={{ color: "#2f5dd4", background: "none", border: "none", cursor: "pointer" }}
+                >
+                  Forgot Password?
+                </button>
+              </div>
             </form>
           ) : (
             <form onSubmit={handleOtpSubmit} className="login-form">
