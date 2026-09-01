@@ -58,15 +58,17 @@ export default function SuperAdminDashboard() {
   const [endDate, setEndDate] = useState(todayStr());
   const [searchTerm, setSearchTerm] = useState("");
 
-  // SalesEnterprise specific filters
-  const [selectedQuarter, setSelectedQuarter] = useState("");   // "1","2","3","4" or ""
+  // SalesEnterprise specific
+  const [selectedQuarter, setSelectedQuarter] = useState("");
   const [selectedYear, setSelectedYear] = useState("");
+  const [selectedSubDept, setSelectedSubDept] = useState("All");
+  const [salesSelectedDept, setSalesSelectedDept] = useState(null);
 
   const [selectedCategory, setSelectedCategory] = useState(null);
   const [caredxSection, setCaredxSection] = useState("lab");
   const [departmentOptions, setDepartmentOptions] = useState(null);
 
-  // Pagination state
+  // Pagination (only used for non-SalesEnterprise dept views)
   const [page, setPage] = useState(1);
   const [perPage, setPerPage] = useState(30);
   const [totalEntries, setTotalEntries] = useState(0);
@@ -109,7 +111,6 @@ export default function SuperAdminDashboard() {
 
   // ---------- API calls ----------
   const fetchOptions = useCallback(async (dept) => {
-    // SalesEnterprise does not have finance entry options
     if (dept === "overview" || dept === "SalesEnterprise") {
       setDepartmentOptions(null);
       return;
@@ -133,6 +134,20 @@ export default function SuperAdminDashboard() {
       toast.error("Failed to load admin overview.");
     } finally {
       setLoading(false);
+    }
+  }, []);
+
+  const fetchDeptSummaryOnly = useCallback(async (dept, start, end) => {
+    setDeptLoading(true);
+    try {
+      const params = { start_date: start, end_date: end };
+      const summaryRes = await api.get(`/admin/departments/${dept}/summary`, { params });
+      setDeptSummary(summaryRes.data);
+    } catch (err) {
+      toast.error(`Failed to load ${dept} summary.`);
+      console.error(err);
+    } finally {
+      setDeptLoading(false);
     }
   }, []);
 
@@ -190,18 +205,44 @@ export default function SuperAdminDashboard() {
   }, [activeDept, fetchOptions]);
 
   useEffect(() => {
-    if (activeDept === "overview" || activeDept === "SalesEnterprise") {
+    if (activeDept === "overview") {
       fetchOverview(startDate, endDate);
+    } else if (activeDept === "SalesEnterprise") {
+      // Always fetch overview for department cards (filtered by quarter/year)
+      fetchOverview(startDate, endDate);
+      // If a specific department is selected, fetch its summary for Summary & Display panels
+      if (salesSelectedDept) {
+        fetchDeptSummaryOnly(salesSelectedDept, startDate, endDate);
+      } else {
+        // No department selected – use overview data for summary panel as well
+        setDeptSummary(null); // clear previous summary
+      }
     } else {
       fetchDeptData();
     }
-  }, [activeDept, startDate, endDate, fetchOverview, fetchDeptData]);
+  }, [activeDept, startDate, endDate, fetchOverview, fetchDeptData, fetchDeptSummaryOnly, salesSelectedDept]);
 
   // ---------- Handlers ----------
   const handleSelectDept = (value) => {
     const config = DEPARTMENTS_CONFIG.find(d => d.value === value);
     if (!config) return;
-    setActiveDept(config.value);
+
+    // If we are in SalesEnterprise view and the clicked department is not SalesEnterprise,
+    // we stay in SalesEnterprise view but change the selected department for display.
+    if (activeDept === "SalesEnterprise" && value !== "SalesEnterprise" && value !== "overview") {
+      setSalesSelectedDept(value);
+      // Reset transactional data (not used in this view)
+      setDeptEntries([]);
+      setCaredxLabEntries([]);
+      setCaredxExpenses([]);
+      setTotalEntries(0);
+      setTotalPages(0);
+      setPage(1);
+      return;
+    }
+
+    // Normal department switch (overview or other departments)
+    setActiveDept(value);
     setActiveExtra(config.extra || null);
     // Reset filters
     setStartDate(firstOfMonth());
@@ -211,6 +252,8 @@ export default function SuperAdminDashboard() {
     setCaredxSection("lab");
     setSelectedQuarter("");
     setSelectedYear("");
+    setSelectedSubDept("All");
+    setSalesSelectedDept(null);
     setDeptEntries([]);
     setCaredxLabEntries([]);
     setCaredxExpenses([]);
@@ -228,6 +271,8 @@ export default function SuperAdminDashboard() {
     setCaredxSection("lab");
     setSelectedQuarter("");
     setSelectedYear("");
+    setSelectedSubDept("All");
+    setSalesSelectedDept(null);
     setPage(1);
   };
 
@@ -337,16 +382,27 @@ export default function SuperAdminDashboard() {
 
   const sortedDepartments = React.useMemo(() => {
     if (!overview?.by_department) return [];
-    const orderMap = {};
-    DEPARTMENTS_CONFIG.forEach((config, idx) => {
-      if (config.value !== "overview") {
-        orderMap[config.value] = idx;
-      }
+    const deptDataMap = {};
+    overview.by_department.forEach(d => {
+      deptDataMap[d.department] = d;
     });
-    return [...overview.by_department].sort((a, b) => {
-      const orderA = orderMap[a.department] ?? 999;
-      const orderB = orderMap[b.department] ?? 999;
-      return orderA - orderB;
+
+    const allDepts = DEPARTMENTS_CONFIG
+      .filter(c => c.value !== "overview")
+      .map(c => c.value);
+
+    return allDepts.map(dept => {
+      const data = deptDataMap[dept];
+      if (data) {
+        return data;
+      } else {
+        return {
+          department: dept,
+          income: 0,
+          expenses: 0,
+          profit: 0,
+        };
+      }
     });
   }, [overview]);
 
@@ -416,27 +472,29 @@ export default function SuperAdminDashboard() {
             </select>
           </div>
 
-          {/* Always show date inputs – they are set by quarter/year for SalesEnterprise */}
-          <div className="form-group" style={{ marginBottom: 0 }}>
-            <label className="form-label">Start Date</label>
-            <input
-              type="date"
-              className="form-control"
-              value={startDate}
-              onChange={(e) => setStartDate(e.target.value)}
-            />
-          </div>
-          <div className="form-group" style={{ marginBottom: 0 }}>
-            <label className="form-label">End Date</label>
-            <input
-              type="date"
-              className="form-control"
-              value={endDate}
-              onChange={(e) => setEndDate(e.target.value)}
-            />
-          </div>
+          {activeDept !== "SalesEnterprise" && (
+            <>
+              <div className="form-group" style={{ marginBottom: 0 }}>
+                <label className="form-label">Start Date</label>
+                <input
+                  type="date"
+                  className="form-control"
+                  value={startDate}
+                  onChange={(e) => setStartDate(e.target.value)}
+                />
+              </div>
+              <div className="form-group" style={{ marginBottom: 0 }}>
+                <label className="form-label">End Date</label>
+                <input
+                  type="date"
+                  className="form-control"
+                  value={endDate}
+                  onChange={(e) => setEndDate(e.target.value)}
+                />
+              </div>
+            </>
+          )}
 
-          {/* SalesEnterprise specific filters */}
           {activeDept === "SalesEnterprise" && (
             <>
               <div className="form-group" style={{ marginBottom: 0 }}>
@@ -467,6 +525,21 @@ export default function SuperAdminDashboard() {
                   })}
                 </select>
               </div>
+
+              <div className="form-group" style={{ marginBottom: 0 }}>
+                <label className="form-label">Sub-Department</label>
+                <select
+                  className="form-control"
+                  value={selectedSubDept}
+                  onChange={(e) => setSelectedSubDept(e.target.value)}
+                  style={{ minWidth: 150 }}
+                >
+                  <option value="All">All</option>
+                  <option value="Enterprise">Enterprise</option>
+                  <option value="SMB">SMB</option>
+                  <option value="Public Sector">Public Sector</option>
+                </select>
+              </div>
             </>
           )}
 
@@ -474,7 +547,6 @@ export default function SuperAdminDashboard() {
             <RotateCcw size={15} /> Reset
           </button>
 
-          {/* Only show search/export/import for non-overview and non-SalesEnterprise departments */}
           {activeDept !== "overview" && activeDept !== "SalesEnterprise" && (
             <>
               <div className="form-group" style={{ marginBottom: 0, flex: 1, minWidth: 200 }}>
@@ -507,10 +579,9 @@ export default function SuperAdminDashboard() {
           )}
         </div>
 
-        {/* ========== OVERVIEW / SALESENTERPRISE VIEW ========== */}
-        {(activeDept === "overview" || activeDept === "SalesEnterprise") && (
+        {/* ========== OVERVIEW VIEW ========== */}
+        {activeDept === "overview" && (
           <>
-            {/* ========== SUMMARY PANEL ========== */}
             <p className="section-title" style={{ marginBottom: 8 }}>Summary Panel</p>
             <div className="stat-grid">
               <div className="card stat-card">
@@ -543,7 +614,6 @@ export default function SuperAdminDashboard() {
               </div>
             </div>
 
-            {/* ========== CATEGORIES PANEL (Department Cards) ========== */}
             {overview?.by_department && (
               <>
                 <p className="section-title" style={{ marginBottom: 8 }}>Categories Panel</p>
@@ -586,14 +656,212 @@ export default function SuperAdminDashboard() {
               </>
             )}
 
-            {/* ========== DISPLAY PANEL ========== */}
             {overview?.by_department && (
               <>
                 <p className="section-title" style={{ marginBottom: 8 }}>Display Panel</p>
-                {activeDept === "SalesEnterprise" ? (
-                  // 4‑chart grid for SalesEnterprise
+                <div className="chart-grid">
+                  <div className="card chart-card">
+                    <h3>Income vs Expenses by Department</h3>
+                    <ResponsiveContainer width="100%" height={280}>
+                      <BarChart data={overview.by_department}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#eef0f4" />
+                        <XAxis dataKey="department" tick={{ fontSize: 12, fill: "#9ca3af" }} />
+                        <YAxis tick={{ fontSize: 11, fill: "#9ca3af" }} />
+                        <Tooltip formatter={(v) => formatCurrency(v)} />
+                        <Legend />
+                        <Bar dataKey="income" fill="#16a34a" name="Income" radius={[4, 4, 0, 0]} />
+                        <Bar dataKey="expenses" fill="#dc2626" name="Expenses" radius={[4, 4, 0, 0]} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                  <div className="card chart-card">
+                    <h3>Department Share of Total Volume</h3>
+                    <ResponsiveContainer width="100%" height={280}>
+                      <PieChart>
+                        <Pie
+                          data={pieData}
+                          dataKey="value"
+                          nameKey="name"
+                          cx="50%" cy="50%"
+                          outerRadius={90}
+                          label={(entry) => entry.name}
+                        >
+                          {pieData.map((_, idx) => (
+                            <Cell key={idx} fill={PIE_COLORS[idx % PIE_COLORS.length]} />
+                          ))}
+                        </Pie>
+                        <Tooltip formatter={(v) => formatCurrency(v)} />
+                      </PieChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+              </>
+            )}
+          </>
+        )}
+
+        {/* ========== SALES ENTERPRISE VIEW ========== */}
+        {activeDept === "SalesEnterprise" && (
+          <>
+            {loading || deptLoading ? (
+              <div className="card empty-state">Loading...</div>
+            ) : (
+              <>
+                {/* SUMMARY PANEL */}
+                <p className="section-title" style={{ marginBottom: 8 }}>
+                  Summary Panel {selectedSubDept !== "All" ? `– ${selectedSubDept}` : ""}
+                  {salesSelectedDept && ` (${DEPARTMENTS_CONFIG.find(d => d.value === salesSelectedDept)?.label || salesSelectedDept})`}
+                </p>
+                {deptSummary ? (
+                  <StatCards
+                    totalIncome={deptSummary.total_income}
+                    totalExpenses={deptSummary.total_expenses}
+                    profit={deptSummary.profit}
+                    entryCount={deptSummary.entry_count}
+                  />
+                ) : (
+                  <div className="stat-grid">
+                    <div className="card stat-card">
+                      <div className="stat-icon stat-icon--team"><Users size={22} /></div>
+                      <div>
+                        <p className="stat-label">Total Departments</p>
+                        <p className="stat-value">{overview?.total_members ?? "—"}</p>
+                      </div>
+                    </div>
+                    <div className="card stat-card">
+                      <div className="stat-icon stat-icon--income"><TrendingUp size={22} /></div>
+                      <div>
+                        <p className="stat-label">Platform Income</p>
+                        <p className="stat-value">{formatCurrency(overview?.total_income)}</p>
+                      </div>
+                    </div>
+                    <div className="card stat-card">
+                      <div className="stat-icon stat-icon--expense"><TrendingDown size={22} /></div>
+                      <div>
+                        <p className="stat-label">Platform Expenses</p>
+                        <p className="stat-value">{formatCurrency(overview?.total_expenses)}</p>
+                      </div>
+                    </div>
+                    <div className="card stat-card">
+                      <div className="stat-icon stat-icon--profit"><Wallet size={22} /></div>
+                      <div>
+                        <p className="stat-label">Platform Profit</p>
+                        <p className="stat-value">{formatCurrency(overview?.total_profit)}</p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* CATEGORIES PANEL (Department Cards – always show overview data) */}
+                {overview?.by_department && (
+                  <>
+                    <p className="section-title" style={{ marginBottom: 8 }}>Categories Panel</p>
+                    <div className="card">
+                      <p className="section-title" style={{ marginBottom: 16 }}>
+                        Income / Expenses / Profit by Department
+                      </p>
+                      <div className="dept-grid">
+                        {sortedDepartments.map((d) => {
+                          const config = DEPARTMENTS_CONFIG.find(c => c.value === d.department);
+                          const label = config ? config.label : d.department;
+                          const isSelected = salesSelectedDept === d.department;
+                          return (
+                            <button
+                              key={d.department}
+                              type="button"
+                              onClick={() => handleSelectDept(d.department)}
+                              className="dept-card"
+                              style={{
+                                textAlign: "left",
+                                cursor: "pointer",
+                                border: isSelected ? "2px solid #7c3aed" : undefined,
+                                backgroundColor: isSelected ? "#f0f0ff" : undefined,
+                              }}
+                            >
+                              <p className="dept-card-title">{label}</p>
+                              <div className="dept-row">
+                                <span className="dept-row-label">Income</span>
+                                <span className="dept-row-value--income">{formatCurrency(d.income)}</span>
+                              </div>
+                              <div className="dept-row">
+                                <span className="dept-row-label">Expenses</span>
+                                <span className="dept-row-value--expense">{formatCurrency(d.expenses)}</span>
+                              </div>
+                              <div className="dept-row dept-row--total">
+                                <span className="dept-row-label">Profit</span>
+                                <span className={`dept-row-value--profit ${d.profit < 0 ? "negative" : ""}`}>
+                                  {formatCurrency(d.profit)}
+                                </span>
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </>
+                )}
+
+                {/* DISPLAY PANEL (4 charts) */}
+                <p className="section-title" style={{ marginBottom: 8 }}>
+                  Display Panel {selectedSubDept !== "All" ? `– ${selectedSubDept}` : ""}
+                  {salesSelectedDept && ` (${DEPARTMENTS_CONFIG.find(d => d.value === salesSelectedDept)?.label || salesSelectedDept})`}
+                </p>
+                {deptSummary ? (
                   <div className="chart-grid" style={{ gridTemplateColumns: "1fr 1fr" }}>
-                    {/* Pie Chart */}
+                    <div className="card chart-card">
+                      <h3>Category Breakdown</h3>
+                      <ResponsiveContainer width="100%" height={280}>
+                        <PieChart>
+                          <Pie
+                            data={deptSummary.category_breakdown || []}
+                            dataKey="amount"
+                            nameKey="category"
+                            cx="50%" cy="50%"
+                            outerRadius={90}
+                            label
+                          >
+                            {(deptSummary.category_breakdown || []).map((_, idx) => (
+                              <Cell key={idx} fill={PIE_COLORS[idx % PIE_COLORS.length]} />
+                            ))}
+                          </Pie>
+                          <Tooltip formatter={(v) => formatCurrency(v)} />
+                        </PieChart>
+                      </ResponsiveContainer>
+                    </div>
+                    <div className="card chart-card">
+                      <h3>Income vs Expenses Trend</h3>
+                      <ResponsiveContainer width="100%" height={280}>
+                        <LineChart data={deptSummary.trend || []}>
+                          <CartesianGrid strokeDasharray="3 3" />
+                          <XAxis dataKey="date" />
+                          <YAxis />
+                          <Tooltip formatter={(v) => formatCurrency(v)} />
+                          <Legend />
+                          <Line type="monotone" dataKey="income" stroke="#16a34a" name="Income" />
+                          <Line type="monotone" dataKey="expenses" stroke="#dc2626" name="Expenses" />
+                        </LineChart>
+                      </ResponsiveContainer>
+                    </div>
+                    <div className="card chart-card">
+                      <h3>Amount by Category</h3>
+                      <ResponsiveContainer width="100%" height={280}>
+                        <BarChart data={deptSummary.category_breakdown || []}>
+                          <CartesianGrid strokeDasharray="3 3" />
+                          <XAxis dataKey="category" />
+                          <YAxis />
+                          <Tooltip formatter={(v) => formatCurrency(v)} />
+                          <Legend />
+                          <Bar dataKey="amount" fill="#2f5dd4" name="Amount" />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+                    <div className="card chart-card">
+                      <h3>3D Revenue View</h3>
+                      <ThreeDChart data={deptSummary.category_breakdown || []} />
+                    </div>
+                  </div>
+                ) : overview?.by_department ? (
+                  <div className="chart-grid" style={{ gridTemplateColumns: "1fr 1fr" }}>
                     <div className="card chart-card">
                       <h3>Department Share of Total Volume</h3>
                       <ResponsiveContainer width="100%" height={280}>
@@ -614,8 +882,6 @@ export default function SuperAdminDashboard() {
                         </PieChart>
                       </ResponsiveContainer>
                     </div>
-
-                    {/* Line Chart (Trend) */}
                     <div className="card chart-card">
                       <h3>Income vs Expenses by Department</h3>
                       <ResponsiveContainer width="100%" height={280}>
@@ -630,8 +896,6 @@ export default function SuperAdminDashboard() {
                         </LineChart>
                       </ResponsiveContainer>
                     </div>
-
-                    {/* Bar Chart */}
                     <div className="card chart-card">
                       <h3>Income vs Expenses (Bar)</h3>
                       <ResponsiveContainer width="100%" height={280}>
@@ -646,61 +910,20 @@ export default function SuperAdminDashboard() {
                         </BarChart>
                       </ResponsiveContainer>
                     </div>
-
-                    {/* 3D Chart */}
                     <div className="card chart-card">
                       <h3>3D Revenue View</h3>
                       <ThreeDChart data={overview.by_department.map(d => ({ category: d.department, amount: d.income + d.expenses }))} />
                     </div>
                   </div>
-                ) : (
-                  // Original 2‑chart grid for Overview
-                  <div className="chart-grid">
-                    <div className="card chart-card">
-                      <h3>Income vs Expenses by Department</h3>
-                      <ResponsiveContainer width="100%" height={280}>
-                        <BarChart data={overview.by_department}>
-                          <CartesianGrid strokeDasharray="3 3" stroke="#eef0f4" />
-                          <XAxis dataKey="department" tick={{ fontSize: 12, fill: "#9ca3af" }} />
-                          <YAxis tick={{ fontSize: 11, fill: "#9ca3af" }} />
-                          <Tooltip formatter={(v) => formatCurrency(v)} />
-                          <Legend />
-                          <Bar dataKey="income" fill="#16a34a" name="Income" radius={[4, 4, 0, 0]} />
-                          <Bar dataKey="expenses" fill="#dc2626" name="Expenses" radius={[4, 4, 0, 0]} />
-                        </BarChart>
-                      </ResponsiveContainer>
-                    </div>
-                    <div className="card chart-card">
-                      <h3>Department Share of Total Volume</h3>
-                      <ResponsiveContainer width="100%" height={280}>
-                        <PieChart>
-                          <Pie
-                            data={pieData}
-                            dataKey="value"
-                            nameKey="name"
-                            cx="50%" cy="50%"
-                            outerRadius={90}
-                            label={(entry) => entry.name}
-                          >
-                            {pieData.map((_, idx) => (
-                              <Cell key={idx} fill={PIE_COLORS[idx % PIE_COLORS.length]} />
-                            ))}
-                          </Pie>
-                          <Tooltip formatter={(v) => formatCurrency(v)} />
-                        </PieChart>
-                      </ResponsiveContainer>
-                    </div>
-                  </div>
-                )}
+                ) : null}
               </>
             )}
           </>
         )}
 
-        {/* ========== OTHER DEPARTMENTS (non-overview, non-SalesEnterprise) ========== */}
+        {/* ========== OTHER DEPARTMENTS ========== */}
         {activeDept !== "overview" && activeDept !== "SalesEnterprise" && (
           <>
-            {/* ========== SUMMARY PANEL ========== */}
             {deptSummary && (
               <>
                 <p className="section-title" style={{ marginBottom: 8 }}>Summary Panel</p>
@@ -713,7 +936,6 @@ export default function SuperAdminDashboard() {
               </>
             )}
 
-            {/* ========== DISPLAY PANEL ========== */}
             {deptSummary && (
               <>
                 <p className="section-title" style={{ marginBottom: 8 }}>Display Panel</p>
@@ -738,7 +960,6 @@ export default function SuperAdminDashboard() {
               </div>
             )}
 
-            {/* ========== CATEGORIES FILTER ========== */}
             {categories.length > 0 && (
               <div className="card" style={{ marginBottom: 16 }}>
                 <p className="section-title" style={{ marginBottom: 12 }}>Categories</p>
@@ -766,7 +987,6 @@ export default function SuperAdminDashboard() {
               </div>
             )}
 
-            {/* ========== TRANSACTIONAL PANEL ========== */}
             {deptLoading ? (
               <div className="card empty-state">Loading...</div>
             ) : activeDept === "Caredx" ? (
