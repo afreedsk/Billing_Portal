@@ -29,9 +29,14 @@ import CaredxLabEntryForm from "../../components/CaredxLabEntryForm.jsx";
 import CaredxExpenseTable from "../../components/CaredxExpenseTable.jsx";
 import CaredxExpenseForm from "../../components/CaredxExpenseForm.jsx";
 
+import Pagination from "../../components/Pagination.jsx";
+
 import api from "../../api/axios.js";
 
 const ROLE_COLOR = "#be185d";
+
+// Records shown per page for both the Income (lab entries) and Expenses tables.
+const PAGE_SIZE = 25;
 
 const formatCurrency = (value) => {
   const number = Number(value || 0);
@@ -60,11 +65,12 @@ export default function CaredxDashboard() {
   const [summaryLoading, setSummaryLoading] = useState(true);
 
   // -------------------------------------------------------------------------
-  // Lab entries
+  // Lab entries (Income)
   // -------------------------------------------------------------------------
 
   const [labEntries, setLabEntries] = useState([]);
   const [labLoading, setLabLoading] = useState(true);
+  const [labPage, setLabPage] = useState(1);
 
   const [labFormOpen, setLabFormOpen] =
     useState(false);
@@ -89,6 +95,8 @@ export default function CaredxDashboard() {
 
   const [expensesLoading, setExpensesLoading] =
     useState(true);
+
+  const [expensePage, setExpensePage] = useState(1);
 
   const [expenseFormOpen, setExpenseFormOpen] =
     useState(false);
@@ -171,6 +179,10 @@ export default function CaredxDashboard() {
             ? response.data.entries
             : []
         );
+
+        // A fresh fetch (filter change, initial load, or after add/edit/delete)
+        // means the previous page number may no longer make sense — start over.
+        setLabPage(1);
       } catch (error) {
         console.error(
           "Lab entries error:",
@@ -183,6 +195,7 @@ export default function CaredxDashboard() {
         );
 
         setLabEntries([]);
+        setLabPage(1);
       } finally {
         setLabLoading(false);
       }
@@ -213,6 +226,8 @@ export default function CaredxDashboard() {
             ? response.data.expenses
             : []
         );
+
+        setExpensePage(1);
       } catch (error) {
         console.error(
           "Expenses error:",
@@ -225,6 +240,7 @@ export default function CaredxDashboard() {
         );
 
         setExpenses([]);
+        setExpensePage(1);
       } finally {
         setExpensesLoading(false);
       }
@@ -254,6 +270,34 @@ export default function CaredxDashboard() {
   useEffect(() => {
     refetchAll();
   }, [refetchAll]);
+
+  // -------------------------------------------------------------------------
+  // Pagination — Lab entries (Income)
+  // -------------------------------------------------------------------------
+
+  const labTotalPages = Math.max(
+    1,
+    Math.ceil(labEntries.length / PAGE_SIZE)
+  );
+
+  const paginatedLabEntries = labEntries.slice(
+    (labPage - 1) * PAGE_SIZE,
+    labPage * PAGE_SIZE
+  );
+
+  // -------------------------------------------------------------------------
+  // Pagination — Expenses
+  // -------------------------------------------------------------------------
+
+  const expenseTotalPages = Math.max(
+    1,
+    Math.ceil(expenses.length / PAGE_SIZE)
+  );
+
+  const paginatedExpenses = expenses.slice(
+    (expensePage - 1) * PAGE_SIZE,
+    expensePage * PAGE_SIZE
+  );
 
   // -------------------------------------------------------------------------
   // Filters
@@ -750,7 +794,7 @@ export default function CaredxDashboard() {
           )}
 
         {/* ================================================================
-            LAB DATA ENTRY
+            LAB DATA ENTRY (INCOME)
         ================================================================= */}
 
         <div className="section-header">
@@ -852,15 +896,25 @@ export default function CaredxDashboard() {
             Loading lab entries...
           </div>
         ) : (
-          <CaredxLabTable
-            entries={labEntries}
-            onEdit={
-              openEditLabEntry
-            }
-            onDelete={
-              handleLabDelete
-            }
-          />
+          <>
+            <CaredxLabTable
+              entries={paginatedLabEntries}
+              onEdit={
+                openEditLabEntry
+              }
+              onDelete={
+                handleLabDelete
+              }
+            />
+
+            <Pagination
+              currentPage={labPage}
+              totalPages={labTotalPages}
+              onPageChange={setLabPage}
+              totalItems={labEntries.length}
+              pageSize={PAGE_SIZE}
+            />
+          </>
         )}
 
         {/* ================================================================
@@ -889,15 +943,25 @@ export default function CaredxDashboard() {
             Loading expenses...
           </div>
         ) : (
-          <CaredxExpenseTable
-            expenses={expenses}
-            onEdit={
-              openEditExpense
-            }
-            onDelete={
-              handleExpenseDelete
-            }
-          />
+          <>
+            <CaredxExpenseTable
+              expenses={paginatedExpenses}
+              onEdit={
+                openEditExpense
+              }
+              onDelete={
+                handleExpenseDelete
+              }
+            />
+
+            <Pagination
+              currentPage={expensePage}
+              totalPages={expenseTotalPages}
+              onPageChange={setExpensePage}
+              totalItems={expenses.length}
+              pageSize={PAGE_SIZE}
+            />
+          </>
         )}
       </main>
 

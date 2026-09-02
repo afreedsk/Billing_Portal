@@ -9,15 +9,25 @@ salesenterprise_bp = Blueprint("salesenterprise", __name__, url_prefix="/api/sal
 @salesenterprise_bp.route("/kpis", methods=["GET"])
 @role_required("SalesEnterprise")
 def get_kpis():
-    """Return all KPI records, optionally filtered by year/quarter."""
     year = request.args.get("year", type=int)
-    quarter = request.args.get("quarter")  # "Q1","Q2","Q3","Q4"
+    quarter = request.args.get("quarter")
+    department = request.args.get("department")
+    month = request.args.get("month")
     query = SalesEnterpriseKPI.query
     if year:
         query = query.filter_by(year=year)
     if quarter:
         query = query.filter_by(quarter=quarter)
-    kpis = query.order_by(SalesEnterpriseKPI.year.desc(), SalesEnterpriseKPI.quarter.desc()).all()
+    if department:
+        query = query.filter_by(department=department)
+    if month:
+        query = query.filter_by(month=month)
+    kpis = query.order_by(
+        SalesEnterpriseKPI.year.desc(),
+        SalesEnterpriseKPI.quarter.desc(),
+        SalesEnterpriseKPI.department,
+        SalesEnterpriseKPI.month
+    ).all()
     return jsonify({"kpis": [k.to_dict() for k in kpis]}), 200
 
 @salesenterprise_bp.route("/kpis", methods=["POST"])
@@ -27,17 +37,23 @@ def create_kpi():
     # Validate required fields
     if not data.get("year") or not data.get("quarter"):
         return jsonify({"message": "Year and quarter are required."}), 400
+    # Department and month are now required (frontend sends them)
+    dept = data.get("department", "IT")
+    mon = data.get("month", "January")
 
-    # Check for duplicate
-    existing = SalesEnterpriseKPI.query.filter_by(
-        year=data["year"], quarter=data["quarter"]
-    ).first()
-    if existing:
-        return jsonify({"message": "KPI for this quarter already exists. Use PUT to update."}), 409
+    # (Optional) Check duplicate across all four fields – enable if you added the unique constraint
+    # existing = SalesEnterpriseKPI.query.filter_by(
+    #     year=data["year"], quarter=data["quarter"],
+    #     department=dept, month=mon
+    # ).first()
+    # if existing:
+    #     return jsonify({"message": "KPI for this combination already exists."}), 409
 
     kpi = SalesEnterpriseKPI(
         year=data["year"],
         quarter=data["quarter"],
+        department=dept,
+        month=mon,
         revenue_growth=data.get("revenue_growth"),
         win_rate=data.get("win_rate"),
         stage_conversion=data.get("stage_conversion"),
@@ -63,14 +79,18 @@ def update_kpi(kpi_id):
     if not kpi:
         return jsonify({"message": "KPI not found."}), 404
     data = request.get_json(silent=True) or {}
-    # Update fields if provided
-    for field in [
+
+    # Fields that can be updated
+    updatable_fields = [
         "revenue_growth", "win_rate", "stage_conversion", "pipeline_coverage",
         "sales_cycle_length", "cac", "rep_productivity", "ramp_time",
-        "lead_response_time", "nrr", "quota_attainment", "forecast_accuracy"
-    ]:
+        "lead_response_time", "nrr", "quota_attainment", "forecast_accuracy",
+        "department", "month"   # now updatable
+    ]
+    for field in updatable_fields:
         if field in data and data[field] is not None:
             setattr(kpi, field, data[field])
+
     db.session.commit()
     return jsonify({"message": "KPI updated", "kpi": kpi.to_dict()}), 200
 

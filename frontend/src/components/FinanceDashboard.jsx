@@ -15,7 +15,13 @@ const firstOfMonth = () => {
 };
 const todayStr = () => new Date().toISOString().split("T")[0];
 
-export default function FinanceDashboard({ department, title, roleColor }) {
+export default function FinanceDashboard({
+  department,
+  title,
+  roleColor,
+  paginateByCategory = false,
+  itemsPerPage = 30, // default, but Corporate will pass 30
+}) {
   const apiBase = department.toLowerCase().replace(/\s/g, '');
   const supportsExcelImportExport = department === "PCM";
 
@@ -28,6 +34,10 @@ export default function FinanceDashboard({ department, title, roleColor }) {
   const [options, setOptions] = useState(null);
   const [loading, setLoading] = useState(true);
   const [importing, setImporting] = useState(false);
+
+  // Category selection & pagination (only used when paginateByCategory === true)
+  const [selectedCategory, setSelectedCategory] = useState(null);
+  const [currentPage, setCurrentPage] = useState(1);
 
   const [formOpen, setFormOpen] = useState(false);
   const [editingEntry, setEditingEntry] = useState(null);
@@ -61,12 +71,18 @@ export default function FinanceDashboard({ department, title, roleColor }) {
 
       setEntries(entriesData);
       setSummary(summaryRes.data);
+
+      // Reset category selection when data changes (e.g., new filter)
+      if (paginateByCategory) {
+        setSelectedCategory(null);
+        setCurrentPage(1);
+      }
     } catch (err) {
       toast.error("Failed to load finance data.");
     } finally {
       setLoading(false);
     }
-  }, [apiBase, startDate, endDate, searchTerm]);
+  }, [apiBase, startDate, endDate, searchTerm, paginateByCategory]);
 
   useEffect(() => {
     fetchOptions();
@@ -93,6 +109,7 @@ export default function FinanceDashboard({ department, title, roleColor }) {
     }
   };
 
+  // ---- Excel Export/Import (unchanged) ----
   const handleExportCsv = () => {
     if (!entries.length) {
       toast.error("No entries to export.");
@@ -175,6 +192,41 @@ export default function FinanceDashboard({ department, title, roleColor }) {
     }
   };
 
+  // ---- Category selection & pagination ----
+  const categoriesWithCounts = React.useMemo(() => {
+    if (!paginateByCategory) return [];
+    const counts = {};
+    entries.forEach(e => {
+      counts[e.category] = (counts[e.category] || 0) + 1;
+    });
+    return Object.entries(counts)
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([category, count]) => ({ category, count }));
+  }, [entries, paginateByCategory]);
+
+  const filteredEntries = React.useMemo(() => {
+    if (!paginateByCategory || !selectedCategory) return entries;
+    return entries.filter(e => e.category === selectedCategory);
+  }, [entries, paginateByCategory, selectedCategory]);
+
+  // Pagination
+  const totalItems = filteredEntries.length;
+  const totalPages = Math.ceil(totalItems / itemsPerPage) || 1;
+  const paginatedEntries = React.useMemo(() => {
+    const start = (currentPage - 1) * itemsPerPage;
+    return filteredEntries.slice(start, start + itemsPerPage);
+  }, [filteredEntries, currentPage, itemsPerPage]);
+
+  const handlePageChange = (page) => {
+    if (page < 1 || page > totalPages) return;
+    setCurrentPage(page);
+  };
+
+  // Reset page when category changes
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [selectedCategory]);
+
   const openNewEntry = () => {
     setEditingEntry(null);
     setFormOpen(true);
@@ -185,6 +237,7 @@ export default function FinanceDashboard({ department, title, roleColor }) {
     setFormOpen(true);
   };
 
+  // ---- Render ----
   return (
     <div className="page">
       <Navbar title={title} roleColor={roleColor} />
@@ -236,12 +289,86 @@ export default function FinanceDashboard({ department, title, roleColor }) {
           <FinanceCharts trend={summary.trend} categoryBreakdown={summary.category_breakdown} />
         )}
 
+        {/* ===== Category Selection (only for Corporate) ===== */}
+        {paginateByCategory && (
+          <div className="category-selector" style={{ marginBottom: 20 }}>
+            <h3 style={{ marginBottom: 8 }}>Select a Category</h3>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+              {categoriesWithCounts.map(({ category, count }) => (
+                <button
+                  key={category}
+                  className={`btn ${selectedCategory === category ? "btn-primary" : "btn-secondary"}`}
+                  onClick={() => setSelectedCategory(category)}
+                  style={{ padding: "6px 14px" }}
+                >
+                  {category} ({count})
+                </button>
+              ))}
+              {categoriesWithCounts.length === 0 && <span className="text-muted">No categories with data.</span>}
+            </div>
+          </div>
+        )}
+
+        {/* ===== Entries Table ===== */}
         <div>
-          <p className="section-title" style={{ marginBottom: 12 }}>Finance Entries</p>
+          <p className="section-title" style={{ marginBottom: 12 }}>
+            {paginateByCategory && selectedCategory
+              ? `${selectedCategory} (${totalItems})`
+              : "Finance Entries"}
+          </p>
+
           {loading ? (
             <div className="card empty-state">Loading...</div>
           ) : (
-            <FinanceTable entries={entries} onEdit={openEditEntry} onDelete={handleDelete} />
+            <>
+              {/* Show table only if not in category mode OR category selected */}
+              {(!paginateByCategory || selectedCategory) ? (
+                <>
+                  <FinanceTable
+                    entries={paginatedEntries}
+                    onEdit={openEditEntry}
+                    onDelete={handleDelete}
+                  />
+
+                  {/* Pagination controls */}
+                  {paginateByCategory && totalPages > 1 && (
+                    <div className="pagination" style={{ marginTop: 16, display: "flex", justifyContent: "center", gap: 8, alignItems: "center" }}>
+                      <button
+                        className="btn btn-secondary"
+                        onClick={() => handlePageChange(currentPage - 1)}
+                        disabled={currentPage === 1}
+                      >
+                        Previous
+                      </button>
+                      <span>
+                        Page {currentPage} of {totalPages}
+                      </span>
+                      {[...Array(totalPages).keys()].map(i => (
+                        <button
+                          key={i}
+                          className={`btn ${currentPage === i + 1 ? "btn-primary" : "btn-secondary"}`}
+                          onClick={() => handlePageChange(i + 1)}
+                          style={{ padding: "4px 10px" }}
+                        >
+                          {i + 1}
+                        </button>
+                      ))}
+                      <button
+                        className="btn btn-secondary"
+                        onClick={() => handlePageChange(currentPage + 1)}
+                        disabled={currentPage === totalPages}
+                      >
+                        Next
+                      </button>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <div className="card empty-state">
+                  Please select a category to view its entries.
+                </div>
+              )}
+            </>
           )}
         </div>
       </main>

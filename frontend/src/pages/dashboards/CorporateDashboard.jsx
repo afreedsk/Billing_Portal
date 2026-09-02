@@ -7,6 +7,8 @@ export default function CorporateDashboard() {
       department="Corporate"
       title="Corporate Management"
       roleColor="#1e293b" // dark slate
+      paginateByCategory={true}
+      itemsPerPage={30} // explicitly set 30 per page
     />
   );
 }

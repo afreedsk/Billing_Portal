@@ -108,7 +108,7 @@ const IT_CATEGORY_FIELDS = {
   "Other": { showEmployeeName: true, showVehicleType: false, labelName: "Name/Item", showPurpose: true },
 };
 
-// IT Sales category fields
+// IT Sales category fields – DUPLICATE REMOVED
 const IT_SALES_CATEGORY_FIELDS = {
   // Expense categories
   "Travel & Entertainment (T&E)": {
@@ -148,12 +148,13 @@ const IT_SALES_CATEGORY_FIELDS = {
     labelName: "Employee/Person Name",
     showPurpose: true,
   },
-  "Supplies & Equipments": {
+  "Supplies & Equipments": {   // ✅ Only this one remains
     showEmployeeName: true,
     showVehicleType: false,
     labelName: "Item/Equipment Name",
     showPurpose: true,
   },
+  // "Supplies and Equipments" – ❌ REMOVED (duplicate)
   "Guest Concierge": {
     showEmployeeName: true,
     showVehicleType: false,
@@ -188,12 +189,6 @@ const IT_SALES_CATEGORY_FIELDS = {
     showEmployeeName: true,
     showVehicleType: false,
     labelName: "Employee/Person Name",
-    showPurpose: true,
-  },
-  "Supplies and Equipments": {
-    showEmployeeName: true,
-    showVehicleType: false,
-    labelName: "Item/Equipment Name",
     showPurpose: true,
   },
   "Consulting": {
@@ -259,9 +254,8 @@ const IT_SALES_CATEGORY_FIELDS = {
   },
 };
 
-// UPDATED MedTech category fields – matches the new category list
+// MedTech category fields (unchanged)
 const MEDTECH_CATEGORY_FIELDS = {
-  // Expense categories
   "Travel & Entertainment (T&E)": {
     showEmployeeName: true,
     showVehicleType: true,
@@ -335,7 +329,6 @@ const MEDTECH_CATEGORY_FIELDS = {
     labelName: "Event/Training Name",
     showPurpose: true,
   },
-  // Income categories
   "B2B Revenue": {
     showEmployeeName: true,
     showVehicleType: false,
@@ -356,14 +349,12 @@ const MEDTECH_CATEGORY_FIELDS = {
   },
 };
 
-// Mapping for PCM category fields (updated – removed Office Supplies & Equipment)
+// PCM category fields (unchanged)
 const PCM_CATEGORY_FIELDS = {
-  // Expense categories
   "Personnel & Payroll": { showEmployeeName: true, showVehicleType: false, labelName: "Employee/Person Name", showPurpose: true },
   "Outsourced Services": { showEmployeeName: true, showVehicleType: false, labelName: "Vendor/Company Name", showPurpose: true },
   "Facilities & Overhead": { showEmployeeName: true, showVehicleType: false, labelName: "Employee/Person Name", showPurpose: true },
   "Marketing": { showEmployeeName: true, showVehicleType: false, labelName: "Employee/Person Name", showPurpose: true },
-  // "Office Supplies & Equipment" REMOVED – no longer in PCM
   "Guest Concierge": { showEmployeeName: true, showVehicleType: false, labelName: "Guest/Person Name", showPurpose: true },
   "Events-Conferences-Training": { showEmployeeName: true, showVehicleType: false, labelName: "Event/Training Name", showPurpose: true },
   "Business Services Revenue": { showEmployeeName: true, showVehicleType: false, labelName: "Service Name", showPurpose: false },
@@ -372,7 +363,6 @@ const PCM_CATEGORY_FIELDS = {
   "Innovation": { showEmployeeName: true, showVehicleType: false, labelName: "Employee/Person Name", showPurpose: true },
   "Supplies & Equipment": { showEmployeeName: true, showVehicleType: false, labelName: "Item/Equipment Name", showPurpose: true },
   "Other": { showEmployeeName: true, showVehicleType: false, labelName: "Name/Item", showPurpose: true },
-  // Income categories (no special fields – fallback to standard)
 };
 
 export default function FinanceEntryForm({
@@ -421,44 +411,34 @@ export default function FinanceEntryForm({
   const [invoiceFile, setInvoiceFile] = useState(null);
   const [removeInvoice, setRemoveInvoice] = useState(false);
   const [saving, setSaving] = useState(false);
-
-  // Multi-employee state for Payroll Salaries (for any dept that supports it)
   const [employees, setEmployees] = useState([emptyEmployee()]);
 
-  // Determine if current category is the salary category (for any dept)
+  // Determine if current category is the salary category
   const isSalaryCategory = !isOfficeAdmin && !isIT && !isITSales && !isMedTech && !isPCM && form.category === salaryCategoryName;
 
-  // For IT, we may have special fields (but salary is disabled)
   const itFieldConfig = isIT ? IT_CATEGORY_FIELDS[form.category] : null;
   const showITFields = isIT && itFieldConfig && form.category !== salaryCategoryName;
   const isITSalaryCategory = isIT && form.category === salaryCategoryName;
 
-  // For IT Sales, we may have special fields (but salary is disabled)
   const itSalesFieldConfig = isITSales ? IT_SALES_CATEGORY_FIELDS[form.category] : null;
   const showITSalesFields = isITSales && itSalesFieldConfig && form.category !== salaryCategoryName;
   const isITSalesSalaryCategory = isITSales && form.category === salaryCategoryName;
 
-  // For MedTech, we may have special fields (but salary is disabled)
   const medTechFieldConfig = isMedTech ? MEDTECH_CATEGORY_FIELDS[form.category] : null;
   const showMedTechFields = isMedTech && medTechFieldConfig && form.category !== salaryCategoryName;
   const isMedTechSalaryCategory = isMedTech && form.category === salaryCategoryName;
 
-  // For PCM, we may have special fields (but salary is disabled)
   const pcmFieldConfig = isPCM ? PCM_CATEGORY_FIELDS[form.category] : null;
   const showPCMFields = isPCM && pcmFieldConfig && form.category !== salaryCategoryName;
   const isPCMSalaryCategory = isPCM && form.category === salaryCategoryName;
 
-  // For Office Admin, we may have special fields – must be declared before usingCategoryFields
   const officeFieldConfig = isOfficeAdmin ? OFFICE_ADMIN_CATEGORY_FIELDS[form.category] : null;
   const showOfficeFields = isOfficeAdmin && officeFieldConfig;
-
-  // Determine if using category-specific fields (skip items validation)
   const usingCategoryFields = showOfficeFields || showITFields || showITSalesFields || showMedTechFields || showPCMFields;
 
   useEffect(() => {
     if (!open) return;
 
-    // Helper to populate the form from an entry
     const populateForm = (entry) => {
       const categoryList = options?.categories?.[entry.entry_type] || [];
       const isCustomCategory = categoryList.includes("Others") && !categoryList.includes(entry.category);
@@ -501,24 +481,15 @@ export default function FinanceEntryForm({
       setRemoveInvoice(false);
     };
 
-    // If we have editingEntry, populate immediately (even without options)
     if (editingEntry) {
       populateForm(editingEntry);
     } else {
-      // New entry: reset to empty
       setForm(createEmptyForm());
       setOtherCategory("");
       setItems([emptyItem()]);
       setEmployees([emptyEmployee()]);
       setInvoiceFile(null);
       setRemoveInvoice(false);
-    }
-
-    // When options finally load, re‑populate to pick up any dropdown defaults
-    // (but only if we are still editing the same entry)
-    if (options && editingEntry) {
-      // Re‑run to set correct revenue_type, etc.
-      populateForm(editingEntry);
     }
   }, [editingEntry, open, options]);
 
@@ -528,8 +499,6 @@ export default function FinanceEntryForm({
   const revenueTypes = options?.revenue_types || [];
   const gstRequired = (options?.gst_required_categories || []).includes(form.category);
   const isOthersCategory = form.category === "Others";
-
-  // Office Admin salary restriction
   const isOfficeAdminSalary = isOfficeAdmin && form.category === salaryCategoryName;
 
   const handleTypeChange = (event) => {
@@ -549,7 +518,6 @@ export default function FinanceEntryForm({
     const value = event.target.value;
     setForm((prev) => ({ ...prev, category: value }));
     if (value !== "Others") setOtherCategory("");
-    // Reset employees if not salary
     if (value !== salaryCategoryName) {
       setEmployees([emptyEmployee()]);
     } else {
@@ -557,7 +525,6 @@ export default function FinanceEntryForm({
     }
   };
 
-  // Employee handlers (for salary)
   const handleEmployeeChange = (key, field, value) => {
     setEmployees(prev =>
       prev.map(emp => {
@@ -582,7 +549,6 @@ export default function FinanceEntryForm({
     setEmployees(prev => prev.filter(emp => emp._key !== key));
   };
 
-  // Item handlers
   const handleItemChange = (key, field, value) => {
     setItems(prev =>
       prev.map(item => {
@@ -605,7 +571,6 @@ export default function FinanceEntryForm({
   };
 
   const salaryTotal = employees.reduce((sum, emp) => sum + (emp.total || 0), 0);
-
   const itemsTotal = options?.show_items
     ? items.reduce((sum, item) => {
         const qty = Number(item.quantity) || 0;
@@ -637,37 +602,27 @@ export default function FinanceEntryForm({
       return;
     }
 
-    // Office Admin: salary category is forbidden
     if (isOfficeAdmin && form.category === salaryCategoryName) {
       toast.error("Salary must be entered by Corporate Management only.");
       return;
     }
-
-    // IT: salary category is disabled
     if (isITSalaryCategory) {
       toast.error("Salaries must be entered by Corporate Management only.");
       return;
     }
-
-    // IT Sales: salary category is disabled
     if (isITSalesSalaryCategory) {
       toast.error("Salaries must be entered by Corporate Management only.");
       return;
     }
-
-    // MedTech: salary category is disabled
     if (isMedTechSalaryCategory) {
       toast.error("Salaries must be entered by Corporate Management only.");
       return;
     }
-
-    // PCM: salary category is disabled
     if (isPCMSalaryCategory) {
       toast.error("Salaries must be entered by Corporate Management only.");
       return;
     }
 
-    // Salary category validation (for other depts that have it)
     if (isSalaryCategory) {
       let valid = true;
       for (const emp of employees) {
@@ -693,7 +648,6 @@ export default function FinanceEntryForm({
       return submitSalaryEntries();
     }
 
-    // Office Admin specific validations
     if (isOfficeAdmin && officeFieldConfig) {
       if (officeFieldConfig.showEmployeeName && !form.employee_name.trim()) {
         toast.error(`Please enter ${officeFieldConfig.labelName || 'name'}.`);
@@ -714,7 +668,6 @@ export default function FinanceEntryForm({
       }
     }
 
-    // IT specific validations (excluding salary)
     if (isIT && showITFields) {
       if (itFieldConfig.showEmployeeName && !form.employee_name.trim()) {
         toast.error(`Please enter ${itFieldConfig.labelName || 'name'}.`);
@@ -739,7 +692,6 @@ export default function FinanceEntryForm({
       }
     }
 
-    // IT Sales specific validations (excluding salary)
     if (isITSales && showITSalesFields) {
       if (itSalesFieldConfig.showEmployeeName && !form.employee_name.trim()) {
         toast.error(`Please enter ${itSalesFieldConfig.labelName || 'name'}.`);
@@ -762,14 +714,12 @@ export default function FinanceEntryForm({
         toast.error("Please enter a valid amount.");
         return;
       }
-      // Additional validation for Income: generated_by is required
       if (form.entry_type === "Income" && !form.generated_by.trim()) {
         toast.error("Please enter the employee name (Generated By) for Income entries.");
         return;
       }
     }
 
-    // MedTech specific validations (excluding salary)
     if (isMedTech && showMedTechFields) {
       if (medTechFieldConfig.showEmployeeName && !form.employee_name.trim()) {
         toast.error(`Please enter ${medTechFieldConfig.labelName || 'name'}.`);
@@ -794,7 +744,6 @@ export default function FinanceEntryForm({
       }
     }
 
-    // PCM specific validations (excluding salary)
     if (isPCM && showPCMFields) {
       if (pcmFieldConfig.showEmployeeName && !form.employee_name.trim()) {
         toast.error(`Please enter ${pcmFieldConfig.labelName || 'name'}.`);
@@ -819,8 +768,6 @@ export default function FinanceEntryForm({
       }
     }
 
-    // Non-salary, non-office-admin, non-IT, non-IT Sales, non-MedTech, non-PCM validations (standard)
-    // Skip these when using category-specific fields
     if (!isOfficeAdmin && !isIT && !isITSales && !isMedTech && !isPCM && !usingCategoryFields && options.show_generated_by && !form.generated_by.trim()) {
       toast.error("Please enter the employee name (Generated By).");
       return;
@@ -910,7 +857,6 @@ export default function FinanceEntryForm({
           formData.append("amount", parseFloat(form.amount) || 0);
         }
         if (invoiceFile) formData.append("invoice", invoiceFile);
-        // Include team for IT Sales
         if (isITSales) {
           formData.append("team", form.team || "");
         }
@@ -933,7 +879,6 @@ export default function FinanceEntryForm({
           body.employee_name = form.employee_name || null;
           body.purpose = form.purpose || null;
           body.vehicle_type = form.vehicle_type || null;
-          // client_name, gst_number, generated_by already in form
         }
         if (isMedTech && showMedTechFields) {
           body.employee_name = form.employee_name || null;
@@ -945,7 +890,6 @@ export default function FinanceEntryForm({
           body.purpose = form.purpose || null;
           body.vehicle_type = form.vehicle_type || null;
         }
-        // Include team for IT Sales
         if (isITSales) {
           body.team = form.team || null;
         }

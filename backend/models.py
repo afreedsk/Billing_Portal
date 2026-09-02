@@ -5,7 +5,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 
 db = SQLAlchemy()
 
-# ---------- ROLES (updated to include SalesEnterprise) ----------
+# ---------- ROLES ----------
 ROLES = [
     "SuperAdmin", "admin", "IT", "IT Sales", "PCM", "MedTech",
     "Caredx", "Corporate", "Adminstrationfunctionalunit",
@@ -14,7 +14,7 @@ ROLES = [
 
 ENTRY_TYPES = ["Income", "Expenses"]
 
-# ---------- DEPARTMENT_CONFIG (unchanged, SalesEnterprise is NOT here) ----------
+# ---------- DEPARTMENT_CONFIG ----------
 DEPARTMENT_CONFIG = {
     # =================== IT ===================
     "IT": {
@@ -72,14 +72,14 @@ DEPARTMENT_CONFIG = {
                 "Facilities & Overhead",
                 "Travel & Entertainment (T&E)",
                 "Marketing",
-                "Supplies & Equipments",
+                "Supplies & Equipments",          # ✅ Kept
                 "Guest Concierge",
                 "Events-Conferences-Training",
                 "Business Services Revenue",
                 "Miscellaneous",
                 "General Operations",
                 "Innovation",
-                "Supplies and Equipments",
+                # "Supplies and Equipments",      # ❌ REMOVED – duplicate
                 "Consulting",
                 "Management Fees",
                 "Other"
@@ -205,7 +205,7 @@ DEPARTMENT_CONFIG = {
                 "Facilities & Overhead",
                 "General Operations",
                 "Innovation",
-                "Supplies and Equipments",
+                "Supplies and Equipments",   # MedTech keeps both – not our concern
                 "Guest Concierge",
                 "Business Services Revenue",
                 "Miscellaneous",
@@ -327,13 +327,9 @@ DEPARTMENT_CONFIG = {
     },
 }
 
-# Note: SalesEnterprise is NOT in DEPARTMENT_CONFIG – it uses its own table.
-VALID_DEPARTMENTS = list(DEPARTMENT_CONFIG.keys())   # does NOT include SalesEnterprise
+VALID_DEPARTMENTS = list(DEPARTMENT_CONFIG.keys())
 
-
-# ------------------------------------------------------------
-# User model
-# ------------------------------------------------------------
+# ---------- User model ----------
 class User(db.Model):
     __tablename__ = "users"
     id = db.Column(db.Integer, primary_key=True)
@@ -363,10 +359,7 @@ class User(db.Model):
             "created_at": self.created_at.isoformat() if self.created_at else None,
         }
 
-
-# ------------------------------------------------------------
-# FinanceEntry model
-# ------------------------------------------------------------
+# ---------- FinanceEntry model ----------
 class FinanceEntry(db.Model):
     __tablename__ = "finance_entries"
     id = db.Column(db.Integer, primary_key=True)
@@ -455,10 +448,7 @@ class FinanceEntry(db.Model):
             "created_at": self.created_at.isoformat() if self.created_at else None,
         }
 
-
-# ------------------------------------------------------------
-# FinanceEntryItem model
-# ------------------------------------------------------------
+# ---------- FinanceEntryItem model ----------
 class FinanceEntryItem(db.Model):
     __tablename__ = "finance_entry_items"
     id = db.Column(db.Integer, primary_key=True)
@@ -478,10 +468,7 @@ class FinanceEntryItem(db.Model):
             "amount": float(self.amount),
         }
 
-
-# ------------------------------------------------------------
-# CaredxLabEntry model
-# ------------------------------------------------------------
+# ---------- CaredxLabEntry model ----------
 class CaredxLabEntry(db.Model):
     __tablename__ = "caredx_lab_entries"
     id = db.Column(db.Integer, primary_key=True)
@@ -523,10 +510,7 @@ class CaredxLabEntry(db.Model):
             "created_at": self.created_at.isoformat() if self.created_at else None,
         }
 
-
-# ------------------------------------------------------------
-# CaredxExpense model
-# ------------------------------------------------------------
+# ---------- CaredxExpense model ----------
 class CaredxExpense(db.Model):
     __tablename__ = "caredx_expenses"
     id = db.Column(db.Integer, primary_key=True)
@@ -554,34 +538,26 @@ class CaredxExpense(db.Model):
             "created_at": self.created_at.isoformat() if self.created_at else None,
         }
 
-
-# ============================================================
-# NEW: SalesEnterpriseKPI model (uses separate table)
-# ============================================================
+# ---------- SalesEnterpriseKPI model ----------
 class SalesEnterpriseKPI(db.Model):
     __tablename__ = "sales_enterprise_kpis"
     id = db.Column(db.Integer, primary_key=True)
     year = db.Column(db.Integer, nullable=False)
-    quarter = db.Column(db.String(2), nullable=False)  # "Q1","Q2","Q3","Q4"
-
-    # Growth KPIs
+    quarter = db.Column(db.String(2), nullable=False)
+    department = db.Column(db.String(50), nullable=False, default='IT')
+    month = db.Column(db.String(20), nullable=False, default='January')
     revenue_growth = db.Column(db.Numeric(8, 2), nullable=True)
     win_rate = db.Column(db.Numeric(8, 2), nullable=True)
     stage_conversion = db.Column(db.Numeric(8, 2), nullable=True)
     pipeline_coverage = db.Column(db.Numeric(8, 2), nullable=True)
-
-    # Efficiency KPIs
     sales_cycle_length = db.Column(db.Numeric(8, 2), nullable=True)
     cac = db.Column(db.Numeric(14, 2), nullable=True)
     rep_productivity = db.Column(db.Numeric(14, 2), nullable=True)
     ramp_time = db.Column(db.Numeric(8, 2), nullable=True)
     lead_response_time = db.Column(db.Numeric(8, 2), nullable=True)
-
-    # Predictability KPIs
     nrr = db.Column(db.Numeric(8, 2), nullable=True)
     quota_attainment = db.Column(db.Numeric(8, 2), nullable=True)
     forecast_accuracy = db.Column(db.Numeric(8, 2), nullable=True)
-
     created_by_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -593,6 +569,8 @@ class SalesEnterpriseKPI(db.Model):
             "id": self.id,
             "year": self.year,
             "quarter": self.quarter,
+            'department': self.department,
+            'month': self.month,
             "revenue_growth": float(self.revenue_growth) if self.revenue_growth is not None else None,
             "win_rate": float(self.win_rate) if self.win_rate is not None else None,
             "stage_conversion": float(self.stage_conversion) if self.stage_conversion is not None else None,
@@ -608,11 +586,7 @@ class SalesEnterpriseKPI(db.Model):
             "created_at": self.created_at.isoformat() if self.created_at else None,
         }
 
-
-# ============================================================
-# MIGRATIONS (existing)
-# ============================================================
-
+# ---------- Migration functions ----------
 def migrate_corporate_categories():
     """Rename existing Corporate entries from old category names to new ones."""
     from sqlalchemy import update
@@ -644,7 +618,6 @@ def migrate_corporate_categories():
         print(f"✅ Corporate category migration complete ({migrated} entries updated).")
     else:
         print("ℹ️ No Corporate category migration needed.")
-
 
 def migrate_office_admin_categories():
     """Rename existing Office Admin entries from old category names to new ones."""
@@ -678,7 +651,6 @@ def migrate_office_admin_categories():
         print(f"✅ Office Admin category migration complete ({migrated} entries updated).")
     else:
         print("ℹ️ No Office Admin category migration needed.")
-
 
 def migrate_caredx_expense_categories():
     """Rename existing Caredx Expense entries from old category names to new ones."""
@@ -718,7 +690,6 @@ def migrate_caredx_expense_categories():
     else:
         print("ℹ️ No Caredx expense category migration needed.")
 
-
 def migrate_it_categories():
     """Rename existing IT entries from old category names to new ones."""
     from sqlalchemy import update
@@ -753,7 +724,6 @@ def migrate_it_categories():
     else:
         print("ℹ️ No IT category migration needed.")
 
-
 def migrate_itsales_categories():
     """Rename existing IT Sales entries from old category names to new ones."""
     from sqlalchemy import update
@@ -787,7 +757,6 @@ def migrate_itsales_categories():
     else:
         print("ℹ️ No IT Sales category migration needed.")
 
-
 def migrate_medtech_categories():
     """Rename existing MedTech entries from old category names to new ones."""
     from sqlalchemy import update
@@ -820,7 +789,6 @@ def migrate_medtech_categories():
         print(f"✅ MedTech category migration complete ({migrated} entries updated).")
     else:
         print("ℹ️ No MedTech category migration needed.")
-
 
 def migrate_pcm_categories():
     """Rename existing PCM entries from old category names to new ones."""

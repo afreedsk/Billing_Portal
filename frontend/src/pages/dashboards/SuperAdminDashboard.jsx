@@ -34,6 +34,46 @@ const DEPARTMENTS_CONFIG = [
   { label: "Sales Enterprise", value: "SalesEnterprise" },
 ];
 
+// ----- New sub‑departments for SalesEnterprise -----
+const SUB_DEPARTMENTS = [
+  "All",
+  "CareDx",
+  "MedTech",
+  "IT Sales",
+  "IT",
+  "Corporate",
+  "Office Management",
+  "Dental",
+];
+
+// Map sub‑department name to main department value for summary API
+const SUB_DEPT_TO_MAIN = {
+  "CareDx": "Caredx",
+  "MedTech": "MedTech",
+  "IT Sales": "IT Sales",
+  "IT": "IT",
+  "Corporate": "Corporate",
+  "Office Management": "Adminstrationfunctionalunit",
+  "Dental": "Dental",
+};
+
+// ----- KPI display names and keys -----
+const KPI_DISPLAY_NAMES = {
+  revenue_growth: "Revenue Growth Rate",
+  win_rate: "Win Rate",
+  stage_conversion: "Stage Conversion Rate",
+  pipeline_coverage: "Pipeline Coverage",
+  sales_cycle_length: "Sales Cycle Length",
+  cac: "Customer Acquisition Cost (CAC)",
+  rep_productivity: "Rep Productivity",
+  ramp_time: "Ramp Time",
+  lead_response_time: "Lead Response Time",
+  nrr: "Net Revenue Retention (NRR)",
+  quota_attainment: "Quota Attainment",
+  forecast_accuracy: "Forecast Accuracy"
+};
+const KPI_KEYS = Object.keys(KPI_DISPLAY_NAMES);
+
 const PIE_COLORS = ["#2f5dd4", "#16a34a", "#d97706", "#8b5cf6", "#dc2626", "#0ea5e9", "#8b5cf6"];
 
 const formatCurrency = (value) =>
@@ -45,6 +85,40 @@ const firstOfMonth = () => {
   return new Date(d.getFullYear(), d.getMonth(), 1).toISOString().split("T")[0];
 };
 const todayStr = () => new Date().toISOString().split("T")[0];
+
+// ----- Helper: get month number from name -----
+const getMonthNumber = (monthName) => {
+  const months = {
+    January: 1, February: 2, March: 3, April: 4, May: 5, June: 6,
+    July: 7, August: 8, September: 9, October: 10, November: 11, December: 12
+  };
+  return months[monthName] || 0;
+};
+
+// ----- Helper: get quarters from month number -----
+const getQuarter = (monthNum) => {
+  if (monthNum >= 1 && monthNum <= 3) return 1;
+  if (monthNum >= 4 && monthNum <= 6) return 2;
+  if (monthNum >= 7 && monthNum <= 9) return 3;
+  if (monthNum >= 10 && monthNum <= 12) return 4;
+  return 0;
+};
+
+// ----- Helper: compute average of an array of numbers -----
+const average = (arr) => {
+  const filtered = arr.filter(v => v !== null && v !== undefined && !isNaN(parseFloat(v)));
+  if (filtered.length === 0) return null;
+  const sum = filtered.reduce((a, b) => a + parseFloat(b), 0);
+  return sum / filtered.length;
+};
+
+// ----- Helper: format KPI value for display -----
+const formatKpiValue = (val) => {
+  if (val === null || val === undefined) return "—";
+  const num = parseFloat(val);
+  if (isNaN(num)) return "—";
+  return num.toFixed(2);
+};
 
 export default function SuperAdminDashboard() {
   // ---------- State ----------
@@ -62,7 +136,14 @@ export default function SuperAdminDashboard() {
   const [selectedQuarter, setSelectedQuarter] = useState("");
   const [selectedYear, setSelectedYear] = useState("");
   const [selectedSubDept, setSelectedSubDept] = useState("All");
+  const [salesKpis, setSalesKpis] = useState([]);        // raw records
+  const [salesKpisLoading, setSalesKpisLoading] = useState(false);
   const [salesSelectedDept, setSalesSelectedDept] = useState(null);
+  // Aggregated data for cards and charts
+  const [salesAggregated, setSalesAggregated] = useState({
+    averages: {},        // overall averages per KPI
+    monthlyData: []      // [{ month, revenue_growth, win_rate, ... }]
+  });
 
   const [selectedCategory, setSelectedCategory] = useState(null);
   const [caredxSection, setCaredxSection] = useState("lab");
@@ -85,7 +166,7 @@ export default function SuperAdminDashboard() {
 
   const [viewEntry, setViewEntry] = useState(null);
 
-  // ---------- Effect: update start/end when quarter/year change for SalesEnterprise ----------
+  // ---------- Effect: update start/end when quarter/year change ----------
   useEffect(() => {
     if (activeDept !== "SalesEnterprise") return;
     if (!selectedYear) return;
@@ -108,6 +189,92 @@ export default function SuperAdminDashboard() {
       setEndDate(end.toISOString().split("T")[0]);
     }
   }, [selectedQuarter, selectedYear, activeDept]);
+
+  // ---------- Fetch KPIs when sub-dept / year / quarter changes ----------
+  useEffect(() => {
+    if (activeDept !== "SalesEnterprise") return;
+    if (selectedSubDept === "All" || !selectedYear) {
+      setSalesKpis([]);
+      setSalesAggregated({ averages: {}, monthlyData: [] });
+      setSalesSelectedDept(null);
+      setDeptSummary(null);
+      return;
+    }
+
+    const mainDept = SUB_DEPT_TO_MAIN[selectedSubDept];
+    if (mainDept) setSalesSelectedDept(mainDept);
+    else setSalesSelectedDept(null);
+
+    const fetchKpis = async () => {
+      setSalesKpisLoading(true);
+      try {
+        const params = {
+          department: selectedSubDept,
+          year: parseInt(selectedYear, 10),
+        };
+        // If a specific quarter is selected, filter by quarter
+        if (selectedQuarter) {
+          params.quarter = `Q${selectedQuarter}`;
+        }
+        const res = await api.get("/salesenterprise/kpis", { params });
+        const records = res.data.kpis || [];
+        setSalesKpis(records);
+
+        // --- Aggregate by month ---
+        // Group records by month (if month field exists, else treat as single group)
+        const monthMap = {};
+        records.forEach(record => {
+          const month = record.month || "January"; // fallback
+          if (!monthMap[month]) monthMap[month] = [];
+          monthMap[month].push(record);
+        });
+
+        // Compute averages per month for each KPI
+        const monthlyData = Object.keys(monthMap).map(month => {
+          const recordsForMonth = monthMap[month];
+          const entry = { month };
+          KPI_KEYS.forEach(key => {
+            const values = recordsForMonth.map(r => parseFloat(r[key])).filter(v => !isNaN(v));
+            entry[key] = values.length > 0 ? average(values) : null;
+          });
+          return entry;
+        });
+
+        // Sort months chronologically
+        monthlyData.sort((a, b) => getMonthNumber(a.month) - getMonthNumber(b.month));
+
+        // Compute overall averages across all records (for cards)
+        const overallAverages = {};
+        KPI_KEYS.forEach(key => {
+          const allValues = records.map(r => parseFloat(r[key])).filter(v => !isNaN(v));
+          overallAverages[key] = allValues.length > 0 ? average(allValues) : null;
+        });
+
+        setSalesAggregated({
+          averages: overallAverages,
+          monthlyData: monthlyData
+        });
+
+      } catch (err) {
+        toast.error("Failed to load KPIs for the selected sub‑department.");
+        setSalesKpis([]);
+        setSalesAggregated({ averages: {}, monthlyData: [] });
+      } finally {
+        setSalesKpisLoading(false);
+      }
+    };
+    fetchKpis();
+  }, [activeDept, selectedSubDept, selectedYear, selectedQuarter]);
+
+  // ---------- Fetch department summary when salesSelectedDept changes ----------
+  useEffect(() => {
+    if (activeDept !== "SalesEnterprise") return;
+    if (!salesSelectedDept) {
+      setDeptSummary(null);
+      return;
+    }
+    fetchDeptSummaryOnly(salesSelectedDept, startDate, endDate);
+  }, [activeDept, salesSelectedDept, startDate, endDate]);
 
   // ---------- API calls ----------
   const fetchOptions = useCallback(async (dept) => {
@@ -208,43 +375,19 @@ export default function SuperAdminDashboard() {
     if (activeDept === "overview") {
       fetchOverview(startDate, endDate);
     } else if (activeDept === "SalesEnterprise") {
-      // Always fetch overview for department cards (filtered by quarter/year)
       fetchOverview(startDate, endDate);
-      // If a specific department is selected, fetch its summary for Summary & Display panels
-      if (salesSelectedDept) {
-        fetchDeptSummaryOnly(salesSelectedDept, startDate, endDate);
-      } else {
-        // No department selected – use overview data for summary panel as well
-        setDeptSummary(null); // clear previous summary
-      }
     } else {
       fetchDeptData();
     }
-  }, [activeDept, startDate, endDate, fetchOverview, fetchDeptData, fetchDeptSummaryOnly, salesSelectedDept]);
+  }, [activeDept, startDate, endDate, fetchOverview, fetchDeptData]);
 
   // ---------- Handlers ----------
   const handleSelectDept = (value) => {
     const config = DEPARTMENTS_CONFIG.find(d => d.value === value);
     if (!config) return;
 
-    // If we are in SalesEnterprise view and the clicked department is not SalesEnterprise,
-    // we stay in SalesEnterprise view but change the selected department for display.
-    if (activeDept === "SalesEnterprise" && value !== "SalesEnterprise" && value !== "overview") {
-      setSalesSelectedDept(value);
-      // Reset transactional data (not used in this view)
-      setDeptEntries([]);
-      setCaredxLabEntries([]);
-      setCaredxExpenses([]);
-      setTotalEntries(0);
-      setTotalPages(0);
-      setPage(1);
-      return;
-    }
-
-    // Normal department switch (overview or other departments)
     setActiveDept(value);
     setActiveExtra(config.extra || null);
-    // Reset filters
     setStartDate(firstOfMonth());
     setEndDate(todayStr());
     setSearchTerm("");
@@ -534,10 +677,9 @@ export default function SuperAdminDashboard() {
                   onChange={(e) => setSelectedSubDept(e.target.value)}
                   style={{ minWidth: 150 }}
                 >
-                  <option value="All">All</option>
-                  <option value="Enterprise">Enterprise</option>
-                  <option value="SMB">SMB</option>
-                  <option value="Public Sector">Public Sector</option>
+                  {SUB_DEPARTMENTS.map((dept) => (
+                    <option key={dept} value={dept}>{dept}</option>
+                  ))}
                 </select>
               </div>
             </>
@@ -752,170 +894,104 @@ export default function SuperAdminDashboard() {
                   </div>
                 )}
 
-                {/* CATEGORIES PANEL (Department Cards – always show overview data) */}
-                {overview?.by_department && (
-                  <>
-                    <p className="section-title" style={{ marginBottom: 8 }}>Categories Panel</p>
-                    <div className="card">
-                      <p className="section-title" style={{ marginBottom: 16 }}>
-                        Income / Expenses / Profit by Department
-                      </p>
-                      <div className="dept-grid">
-                        {sortedDepartments.map((d) => {
-                          const config = DEPARTMENTS_CONFIG.find(c => c.value === d.department);
-                          const label = config ? config.label : d.department;
-                          const isSelected = salesSelectedDept === d.department;
-                          return (
-                            <button
-                              key={d.department}
-                              type="button"
-                              onClick={() => handleSelectDept(d.department)}
-                              className="dept-card"
-                              style={{
-                                textAlign: "left",
-                                cursor: "pointer",
-                                border: isSelected ? "2px solid #7c3aed" : undefined,
-                                backgroundColor: isSelected ? "#f0f0ff" : undefined,
-                              }}
-                            >
-                              <p className="dept-card-title">{label}</p>
-                              <div className="dept-row">
-                                <span className="dept-row-label">Income</span>
-                                <span className="dept-row-value--income">{formatCurrency(d.income)}</span>
-                              </div>
-                              <div className="dept-row">
-                                <span className="dept-row-label">Expenses</span>
-                                <span className="dept-row-value--expense">{formatCurrency(d.expenses)}</span>
-                              </div>
-                              <div className="dept-row dept-row--total">
-                                <span className="dept-row-label">Profit</span>
-                                <span className={`dept-row-value--profit ${d.profit < 0 ? "negative" : ""}`}>
-                                  {formatCurrency(d.profit)}
-                                </span>
-                              </div>
-                            </button>
-                          );
-                        })}
-                      </div>
+                {/* CATEGORIES PANEL – show averages per KPI */}
+                <p className="section-title" style={{ marginBottom: 8 }}>Categories Panel</p>
+                <div className="card">
+                  {selectedSubDept === "All" ? (
+                    <div style={{ textAlign: "center", padding: "20px 0", color: "#6b7280" }}>
+                      Select a sub‑department to view its KPI averages.
                     </div>
-                  </>
-                )}
+                  ) : salesKpisLoading ? (
+                    <div style={{ textAlign: "center", padding: "20px 0", color: "#6b7280" }}>Loading KPIs...</div>
+                  ) : salesKpis.length === 0 ? (
+                    <div style={{ textAlign: "center", padding: "20px 0", color: "#6b7280" }}>
+                      No KPI data found for {selectedSubDept} in the selected period.
+                    </div>
+                  ) : (
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: "16px" }}>
+                      {KPI_KEYS.map((key) => {
+                        const avg = salesAggregated.averages[key];
+                        return (
+                          <div
+                            key={key}
+                            style={{
+                              padding: "12px",
+                              border: "1px solid #e2e8f0",
+                              borderRadius: "8px",
+                              background: "#f9fafb",
+                              textAlign: "center",
+                            }}
+                          >
+                            <div style={{ fontSize: "0.75rem", fontWeight: "600", color: "#4a5568", marginBottom: "4px" }}>
+                              {KPI_DISPLAY_NAMES[key]}
+                            </div>
+                            <div style={{ fontSize: "1.1rem", fontWeight: "bold", color: "#1a202c" }}>
+                              {avg !== null && avg !== undefined ? avg.toFixed(2) : "—"}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
 
-                {/* DISPLAY PANEL (4 charts) */}
+                {/* DISPLAY PANEL – monthly bar charts per KPI */}
                 <p className="section-title" style={{ marginBottom: 8 }}>
                   Display Panel {selectedSubDept !== "All" ? `– ${selectedSubDept}` : ""}
-                  {salesSelectedDept && ` (${DEPARTMENTS_CONFIG.find(d => d.value === salesSelectedDept)?.label || salesSelectedDept})`}
                 </p>
-                {deptSummary ? (
-                  <div className="chart-grid" style={{ gridTemplateColumns: "1fr 1fr" }}>
-                    <div className="card chart-card">
-                      <h3>Category Breakdown</h3>
-                      <ResponsiveContainer width="100%" height={280}>
-                        <PieChart>
-                          <Pie
-                            data={deptSummary.category_breakdown || []}
-                            dataKey="amount"
-                            nameKey="category"
-                            cx="50%" cy="50%"
-                            outerRadius={90}
-                            label
+                <div className="card">
+                  {selectedSubDept === "All" ? (
+                    <div style={{ textAlign: "center", padding: "30px 0", color: "#6b7280" }}>
+                      Select a sub‑department to view monthly KPI trends.
+                    </div>
+                  ) : salesKpisLoading ? (
+                    <div style={{ textAlign: "center", padding: "30px 0", color: "#6b7280" }}>Loading charts...</div>
+                  ) : salesKpis.length === 0 ? (
+                    <div style={{ textAlign: "center", padding: "30px 0", color: "#6b7280" }}>
+                      No KPI data available for {selectedSubDept} in the selected period.
+                    </div>
+                  ) : (
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "16px" }}>
+                      {KPI_KEYS.map((key) => {
+                        // Prepare chart data from monthlyData
+                        const chartData = salesAggregated.monthlyData.map(item => ({
+                          month: item.month,
+                          value: item[key] !== null && item[key] !== undefined ? item[key] : 0,
+                        }));
+
+                        const displayName = KPI_DISPLAY_NAMES[key];
+
+                        return (
+                          <div
+                            key={key}
+                            style={{
+                              border: "1px solid #e2e8f0",
+                              borderRadius: "8px",
+                              padding: "8px",
+                              background: "#f9fafb",
+                            }}
                           >
-                            {(deptSummary.category_breakdown || []).map((_, idx) => (
-                              <Cell key={idx} fill={PIE_COLORS[idx % PIE_COLORS.length]} />
-                            ))}
-                          </Pie>
-                          <Tooltip formatter={(v) => formatCurrency(v)} />
-                        </PieChart>
-                      </ResponsiveContainer>
+                            <div style={{ fontSize: "0.7rem", fontWeight: "600", color: "#4a5568", textAlign: "center", marginBottom: "4px" }}>
+                              {displayName}
+                            </div>
+                            <ResponsiveContainer width="100%" height={120}>
+                              <BarChart data={chartData}>
+                                <CartesianGrid strokeDasharray="2 2" stroke="#e2e8f0" />
+                                <XAxis dataKey="month" tick={{ fontSize: 9 }} />
+                                <YAxis tick={{ fontSize: 9 }} domain={['auto', 'auto']} />
+                                <Tooltip
+                                  formatter={(v) => (typeof v === 'number' ? v.toFixed(2) : v)}
+                                  labelFormatter={(label) => label}
+                                />
+                                <Bar dataKey="value" fill="#2f5dd4" />
+                              </BarChart>
+                            </ResponsiveContainer>
+                          </div>
+                        );
+                      })}
                     </div>
-                    <div className="card chart-card">
-                      <h3>Income vs Expenses Trend</h3>
-                      <ResponsiveContainer width="100%" height={280}>
-                        <LineChart data={deptSummary.trend || []}>
-                          <CartesianGrid strokeDasharray="3 3" />
-                          <XAxis dataKey="date" />
-                          <YAxis />
-                          <Tooltip formatter={(v) => formatCurrency(v)} />
-                          <Legend />
-                          <Line type="monotone" dataKey="income" stroke="#16a34a" name="Income" />
-                          <Line type="monotone" dataKey="expenses" stroke="#dc2626" name="Expenses" />
-                        </LineChart>
-                      </ResponsiveContainer>
-                    </div>
-                    <div className="card chart-card">
-                      <h3>Amount by Category</h3>
-                      <ResponsiveContainer width="100%" height={280}>
-                        <BarChart data={deptSummary.category_breakdown || []}>
-                          <CartesianGrid strokeDasharray="3 3" />
-                          <XAxis dataKey="category" />
-                          <YAxis />
-                          <Tooltip formatter={(v) => formatCurrency(v)} />
-                          <Legend />
-                          <Bar dataKey="amount" fill="#2f5dd4" name="Amount" />
-                        </BarChart>
-                      </ResponsiveContainer>
-                    </div>
-                    <div className="card chart-card">
-                      <h3>3D Revenue View</h3>
-                      <ThreeDChart data={deptSummary.category_breakdown || []} />
-                    </div>
-                  </div>
-                ) : overview?.by_department ? (
-                  <div className="chart-grid" style={{ gridTemplateColumns: "1fr 1fr" }}>
-                    <div className="card chart-card">
-                      <h3>Department Share of Total Volume</h3>
-                      <ResponsiveContainer width="100%" height={280}>
-                        <PieChart>
-                          <Pie
-                            data={pieData}
-                            dataKey="value"
-                            nameKey="name"
-                            cx="50%" cy="50%"
-                            outerRadius={90}
-                            label={(entry) => entry.name}
-                          >
-                            {pieData.map((_, idx) => (
-                              <Cell key={idx} fill={PIE_COLORS[idx % PIE_COLORS.length]} />
-                            ))}
-                          </Pie>
-                          <Tooltip formatter={(v) => formatCurrency(v)} />
-                        </PieChart>
-                      </ResponsiveContainer>
-                    </div>
-                    <div className="card chart-card">
-                      <h3>Income vs Expenses by Department</h3>
-                      <ResponsiveContainer width="100%" height={280}>
-                        <LineChart data={overview.by_department}>
-                          <CartesianGrid strokeDasharray="3 3" />
-                          <XAxis dataKey="department" />
-                          <YAxis />
-                          <Tooltip formatter={(v) => formatCurrency(v)} />
-                          <Legend />
-                          <Line type="monotone" dataKey="income" stroke="#16a34a" name="Income" />
-                          <Line type="monotone" dataKey="expenses" stroke="#dc2626" name="Expenses" />
-                        </LineChart>
-                      </ResponsiveContainer>
-                    </div>
-                    <div className="card chart-card">
-                      <h3>Income vs Expenses (Bar)</h3>
-                      <ResponsiveContainer width="100%" height={280}>
-                        <BarChart data={overview.by_department}>
-                          <CartesianGrid strokeDasharray="3 3" />
-                          <XAxis dataKey="department" />
-                          <YAxis />
-                          <Tooltip formatter={(v) => formatCurrency(v)} />
-                          <Legend />
-                          <Bar dataKey="income" fill="#16a34a" name="Income" />
-                          <Bar dataKey="expenses" fill="#dc2626" name="Expenses" />
-                        </BarChart>
-                      </ResponsiveContainer>
-                    </div>
-                    <div className="card chart-card">
-                      <h3>3D Revenue View</h3>
-                      <ThreeDChart data={overview.by_department.map(d => ({ category: d.department, amount: d.income + d.expenses }))} />
-                    </div>
-                  </div>
-                ) : null}
+                  )}
+                </div>
               </>
             )}
           </>
