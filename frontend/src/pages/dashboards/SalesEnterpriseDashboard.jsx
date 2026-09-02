@@ -1,69 +1,193 @@
 // frontend/src/pages/dashboards/SalesEnterpriseDashboard.jsx
-import React, { useState, useEffect, useCallback, useMemo } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import toast from "react-hot-toast";
 import Navbar from "../../components/Navbar.jsx";
 import api from "../../api/axios.js";
 
 const QUARTERS = ["Q1", "Q2", "Q3", "Q4"];
-const ALL_MONTHS = [
+const MONTHS = [
   "January", "February", "March", "April", "May", "June",
   "July", "August", "September", "October", "November", "December"
 ];
 const DEPARTMENTS = ["IT", "IT sales", "MedTech", "CareDx", "PCM"];
+const currentYear = new Date().getFullYear();
 
-// Map quarter to months
-const QUARTER_TO_MONTHS = {
-  Q1: ["January", "February", "March"],
-  Q2: ["April", "May", "June"],
-  Q3: ["July", "August", "September"],
-  Q4: ["October", "November", "December"]
+// ----- Display names for each KPI -----
+const KPI_DISPLAY_NAMES = {
+  revenue_growth: "Revenue Growth Rate",
+  win_rate: "Win Rate",
+  stage_conversion: "Stage Conversion Rate",
+  pipeline_coverage: "Pipeline Coverage",
+  sales_cycle_length: "Sales Cycle Length",
+  cac: "Customer Acquisition Cost (CAC)",
+  rep_productivity: "Rep Productivity",
+  ramp_time: "Ramp Time",
+  lead_response_time: "Lead Response Time",
+  nrr: "Net Revenue Retention (NRR)",
+  quota_attainment: "Quota Attainment",
+  forecast_accuracy: "Forecast Accuracy"
 };
 
-const currentYear = new Date().getFullYear();
+// ----- Formula definitions with display strings -----
+const FORMULA_CONFIG = {
+  revenue_growth: {
+    inputs: ['current_revenue', 'prior_revenue'],
+    formulaDisplay: '(Current – Prior) / Prior × 100',
+    compute: (vals) => {
+      const cur = parseFloat(vals.current_revenue) || 0;
+      const prior = parseFloat(vals.prior_revenue) || 0;
+      if (prior === 0) return null;
+      return ((cur - prior) / prior) * 100;
+    }
+  },
+  win_rate: {
+    inputs: ['closed_won', 'total_decided'],
+    formulaDisplay: 'Closed-Won / Total Decided × 100',
+    compute: (vals) => {
+      const won = parseFloat(vals.closed_won) || 0;
+      const total = parseFloat(vals.total_decided) || 0;
+      if (total === 0) return null;
+      return (won / total) * 100;
+    }
+  },
+  stage_conversion: {
+    inputs: ['converted', 'total_at_stage'],
+    formulaDisplay: 'Converted / Total at Stage × 100',
+    compute: (vals) => {
+      const converted = parseFloat(vals.converted) || 0;
+      const total = parseFloat(vals.total_at_stage) || 0;
+      if (total === 0) return null;
+      return (converted / total) * 100;
+    }
+  },
+  pipeline_coverage: {
+    inputs: ['qualified_pipeline', 'revenue_target'],
+    formulaDisplay: 'Qualified Pipeline / Revenue Target',
+    compute: (vals) => {
+      const pipe = parseFloat(vals.qualified_pipeline) || 0;
+      const target = parseFloat(vals.revenue_target) || 0;
+      if (target === 0) return null;
+      return pipe / target;
+    }
+  },
+  sales_cycle_length: {
+    inputs: ['total_days', 'closed_deals'],
+    formulaDisplay: 'Total Days / Closed Deals',
+    compute: (vals) => {
+      const days = parseFloat(vals.total_days) || 0;
+      const deals = parseFloat(vals.closed_deals) || 0;
+      if (deals === 0) return null;
+      return days / deals;
+    }
+  },
+  cac: {
+    inputs: ['total_spend', 'new_customers'],
+    formulaDisplay: 'Total Spend / New Customers',
+    compute: (vals) => {
+      const spend = parseFloat(vals.total_spend) || 0;
+      const customers = parseFloat(vals.new_customers) || 0;
+      if (customers === 0) return null;
+      return spend / customers;
+    }
+  },
+  rep_productivity: {
+    inputs: ['total_revenue', 'num_reps'],
+    formulaDisplay: 'Total Revenue / Number of Reps',
+    compute: (vals) => {
+      const rev = parseFloat(vals.total_revenue) || 0;
+      const reps = parseFloat(vals.num_reps) || 0;
+      if (reps === 0) return null;
+      return rev / reps;
+    }
+  },
+  ramp_time: {
+    inputs: [],          // direct entry
+    formulaDisplay: null,
+    compute: null
+  },
+  lead_response_time: {
+    inputs: [],          // direct entry
+    formulaDisplay: null,
+    compute: null
+  },
+  nrr: {
+    inputs: ['starting_arr', 'expansion', 'contraction', 'churn'],
+    formulaDisplay: '(Starting ARR + Expansion – Contraction – Churn) / Starting ARR × 100',
+    compute: (vals) => {
+      const start = parseFloat(vals.starting_arr) || 0;
+      const exp = parseFloat(vals.expansion) || 0;
+      const contr = parseFloat(vals.contraction) || 0;
+      const churn = parseFloat(vals.churn) || 0;
+      if (start === 0) return null;
+      return ((start + exp - contr - churn) / start) * 100;
+    }
+  },
+  quota_attainment: {
+    inputs: ['actual_revenue', 'quota'],
+    formulaDisplay: 'Actual Revenue / Quota × 100',
+    compute: (vals) => {
+      const actual = parseFloat(vals.actual_revenue) || 0;
+      const quota = parseFloat(vals.quota) || 0;
+      if (quota === 0) return null;
+      return (actual / quota) * 100;
+    }
+  },
+  forecast_accuracy: {
+    inputs: ['actual_forecast', 'forecast'],
+    formulaDisplay: '(1 – |Actual – Forecast| / Forecast) × 100',
+    compute: (vals) => {
+      const actual = parseFloat(vals.actual_forecast) || 0;
+      const forecast = parseFloat(vals.forecast) || 0;
+      if (forecast === 0) return null;
+      return (1 - Math.abs(actual - forecast) / forecast) * 100;
+    }
+  }
+};
+
+const KPI_KEYS = Object.keys(FORMULA_CONFIG);
+
+// ----- Grouping for display -----
+const CATEGORIES = {
+  '📈 Growth KPIs': ['revenue_growth', 'win_rate', 'stage_conversion', 'pipeline_coverage'],
+  '⚡ Efficiency KPIs': ['sales_cycle_length', 'cac', 'rep_productivity', 'ramp_time', 'lead_response_time'],
+  '🎯 Predictability KPIs': ['nrr', 'quota_attainment', 'forecast_accuracy']
+};
 
 export default function SalesEnterpriseDashboard() {
   const [kpis, setKpis] = useState([]);
   const [loading, setLoading] = useState(false);
   const [editing, setEditing] = useState(null);
 
-  // Form state
   const [year, setYear] = useState(currentYear);
   const [quarter, setQuarter] = useState("Q1");
   const [department, setDepartment] = useState("IT");
   const [month, setMonth] = useState("January");
-  const [availableMonths, setAvailableMonths] = useState(QUARTER_TO_MONTHS.Q1);
 
-  // Filter state for table
-  const [filterDepartment, setFilterDepartment] = useState("All");
-  const [filterMonth, setFilterMonth] = useState("All");
+  const [formData, setFormData] = useState(
+    KPI_KEYS.reduce((acc, key) => ({ ...acc, [key]: "" }), {})
+  );
+  const [rawInputs, setRawInputs] = useState({});
 
-  // View modal
-  const [viewModalOpen, setViewModalOpen] = useState(false);
-  const [viewKpi, setViewKpi] = useState(null);
+  // Compute KPIs from raw inputs (only in add mode)
+  const computeKPIs = useCallback(() => {
+    const newKpis = {};
+    KPI_KEYS.forEach((key) => {
+      const config = FORMULA_CONFIG[key];
+      if (config.compute) {
+        const value = config.compute(rawInputs);
+        newKpis[key] = (value !== null && !isNaN(value))
+          ? String(Math.round(value * 100) / 100)
+          : "";
+      }
+    });
+    setFormData((prev) => ({ ...prev, ...newKpis }));
+  }, [rawInputs]);
 
-  const [formData, setFormData] = useState({
-    revenue_growth: "",
-    win_rate: "",
-    stage_conversion: "",
-    pipeline_coverage: "",
-    sales_cycle_length: "",
-    cac: "",
-    rep_productivity: "",
-    ramp_time: "",
-    lead_response_time: "",
-    nrr: "",
-    quota_attainment: "",
-    forecast_accuracy: "",
-  });
-
-  // Update available months when quarter changes
   useEffect(() => {
-    setAvailableMonths(QUARTER_TO_MONTHS[quarter] || []);
-    // If current month is not in the new quarter, reset to first month of that quarter
-    if (!QUARTER_TO_MONTHS[quarter].includes(month)) {
-      setMonth(QUARTER_TO_MONTHS[quarter][0] || "January");
+    if (!editing) {
+      computeKPIs();
     }
-  }, [quarter, month]);
+  }, [computeKPIs, editing]);
 
   const fetchKpis = useCallback(async () => {
     setLoading(true);
@@ -81,7 +205,12 @@ export default function SalesEnterpriseDashboard() {
     fetchKpis();
   }, [fetchKpis]);
 
-  const handleChange = (e) => {
+  const handleRawChange = (e) => {
+    const { name, value } = e.target;
+    setRawInputs((prev) => ({ ...prev, [name]: value }));
+  };
+
+  const handleDirectChange = (e) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
   };
 
@@ -110,7 +239,6 @@ export default function SalesEnterpriseDashboard() {
         await api.post("/salesenterprise/kpis", payload);
         toast.success("KPI added");
       }
-      setEditing(null);
       resetForm();
       fetchKpis();
     } catch (err) {
@@ -125,20 +253,12 @@ export default function SalesEnterpriseDashboard() {
     setQuarter(kpi.quarter);
     setDepartment(kpi.department || "IT");
     setMonth(kpi.month || "January");
-    setFormData({
-      revenue_growth: kpi.revenue_growth ?? "",
-      win_rate: kpi.win_rate ?? "",
-      stage_conversion: kpi.stage_conversion ?? "",
-      pipeline_coverage: kpi.pipeline_coverage ?? "",
-      sales_cycle_length: kpi.sales_cycle_length ?? "",
-      cac: kpi.cac ?? "",
-      rep_productivity: kpi.rep_productivity ?? "",
-      ramp_time: kpi.ramp_time ?? "",
-      lead_response_time: kpi.lead_response_time ?? "",
-      nrr: kpi.nrr ?? "",
-      quota_attainment: kpi.quota_attainment ?? "",
-      forecast_accuracy: kpi.forecast_accuracy ?? "",
+    const newFormData = {};
+    KPI_KEYS.forEach((key) => {
+      newFormData[key] = kpi[key] ?? "";
     });
+    setFormData(newFormData);
+    setRawInputs({});
   };
 
   const handleDelete = async (id) => {
@@ -158,47 +278,165 @@ export default function SalesEnterpriseDashboard() {
     setQuarter("Q1");
     setDepartment("IT");
     setMonth("January");
-    setFormData({
-      revenue_growth: "",
-      win_rate: "",
-      stage_conversion: "",
-      pipeline_coverage: "",
-      sales_cycle_length: "",
-      cac: "",
-      rep_productivity: "",
-      ramp_time: "",
-      lead_response_time: "",
-      nrr: "",
-      quota_attainment: "",
-      forecast_accuracy: "",
-    });
+    setFormData(KPI_KEYS.reduce((acc, key) => ({ ...acc, [key]: "" }), {}));
+    setRawInputs({});
   };
 
   const cancelEdit = resetForm;
 
-  // Filter KPIs for table
-  const filteredKpis = useMemo(() => {
-    return kpis.filter(k => {
-      let match = true;
-      if (filterDepartment !== "All" && k.department !== filterDepartment) match = false;
-      if (filterMonth !== "All" && k.month !== filterMonth) match = false;
-      return match;
-    });
-  }, [kpis, filterDepartment, filterMonth]);
+  // ----- Render a single KPI card -----
+  const renderKpiCard = (key) => {
+    const config = FORMULA_CONFIG[key];
+    const isFormula = config.inputs && config.inputs.length > 0;
+    const displayName = KPI_DISPLAY_NAMES[key] || key.replace(/_/g, " ").toUpperCase();
 
-  const handleView = (kpi) => {
-    setViewKpi(kpi);
-    setViewModalOpen(true);
+    // Common card style
+    const cardStyle = {
+      flex: "1 1 220px",
+      minWidth: "200px",
+      margin: "6px",
+      padding: "10px 12px",
+      border: "1px solid #e2e8f0",
+      borderRadius: "8px",
+      background: "#ffffff",
+      boxShadow: "0 1px 3px rgba(0,0,0,0.04)"
+    };
+
+    if (editing) {
+      // Edit mode: show a simple input with the name
+      return (
+        <div key={key} style={cardStyle}>
+          <div style={{ fontSize: "0.75rem", fontWeight: "600", color: "#2d3748", marginBottom: "4px" }}>
+            {displayName}
+          </div>
+          <input
+            type="number"
+            step="0.01"
+            name={key}
+            value={formData[key] || ""}
+            onChange={handleDirectChange}
+            placeholder="—"
+            className="form-control"
+            style={{ width: "100%", fontSize: "0.9rem" }}
+          />
+        </div>
+      );
+    }
+
+    // Add mode
+    if (isFormula) {
+      // Formula card: show name, formula display, input fields, and computed result
+      return (
+        <div key={key} style={cardStyle}>
+          <div style={{ fontSize: "0.8rem", fontWeight: "600", color: "#1a202c", marginBottom: "2px" }}>
+            {displayName}
+          </div>
+          <div style={{ fontSize: "0.65rem", color: "#4a5568", fontFamily: "monospace", marginBottom: "6px" }}>
+            {config.formulaDisplay}
+          </div>
+          <div style={{ display: "flex", gap: "4px", flexWrap: "wrap", marginBottom: "4px" }}>
+            {config.inputs.map((inp) => (
+              <input
+                key={inp}
+                type="number"
+                step="0.01"
+                name={inp}
+                value={rawInputs[inp] || ""}
+                onChange={handleRawChange}
+                placeholder={inp.replace(/_/g, " ")}
+                className="form-control"
+                style={{ flex: "1", minWidth: "50px", fontSize: "0.75rem", padding: "4px" }}
+              />
+            ))}
+          </div>
+          <input
+            type="text"
+            name={key}
+            value={formData[key] || ""}
+            readOnly
+            className="form-control"
+            style={{
+              background: "#edf2f7",
+              fontWeight: "bold",
+              fontSize: "0.85rem",
+              textAlign: "center",
+              padding: "2px 4px",
+              width: "100%",
+              marginTop: "2px"
+            }}
+            placeholder="computed result"
+          />
+        </div>
+      );
+    } else {
+      // Direct-entry (ramp_time, lead_response_time) – same card but no formula, single editable input
+      return (
+        <div key={key} style={cardStyle}>
+          <div style={{ fontSize: "0.8rem", fontWeight: "600", color: "#1a202c", marginBottom: "4px" }}>
+            {displayName}
+          </div>
+          <input
+            type="number"
+            step="0.01"
+            name={key}
+            value={formData[key] || ""}
+            onChange={handleDirectChange}
+            placeholder="Enter value"
+            className="form-control"
+            style={{ width: "100%", fontSize: "0.9rem" }}
+          />
+        </div>
+      );
+    }
+  };
+
+  // ----- Render a category with its KPIs (ONLY THIS FUNCTION IS CHANGED) -----
+  const renderCategory = (title, keys) => {
+    const isEfficiency = title === "⚡ Efficiency KPIs";
+
+    return (
+      <div key={title} style={{ marginBottom: 20 }}>
+        <h3 style={{ margin: "16px 0 8px", color: "#1a202c", fontSize: "1.1rem", borderBottom: "2px solid #e2e8f0", paddingBottom: "4px" }}>
+          {title}
+        </h3>
+        <div
+          style={{
+            display: isEfficiency ? "grid" : "flex",
+            flexWrap: isEfficiency ? "unset" : "wrap",
+            gridTemplateColumns: isEfficiency ? "repeat(3, 1fr)" : undefined,
+            gap: isEfficiency ? "12px" : "0",
+            alignItems: "stretch"
+          }}
+        >
+          {keys.map((key) => {
+            const card = renderKpiCard(key);
+            if (isEfficiency) {
+              // Override card styles to fill grid cells properly
+              return React.cloneElement(card, {
+                style: {
+                  ...card.props.style,
+                  width: "100%",
+                  margin: 0,
+                  flex: "none",
+                  minWidth: "unset"
+                }
+              });
+            }
+            return card;
+          })}
+        </div>
+      </div>
+    );
   };
 
   return (
     <div className="page">
       <Navbar title="Sales Enterprise Dashboard" roleColor="#f97316" />
       <main className="page-main">
-        {/* Add/Edit Form */}
         <div className="card" style={{ marginBottom: 24 }}>
           <h2>{editing ? "Edit" : "Add"} KPI for Quarter</h2>
-          <form onSubmit={handleSubmit} className="form">
+          <form onSubmit={handleSubmit}>
+            {/* Common fields */}
             <div className="form-row">
               <div className="form-group">
                 <label>Year</label>
@@ -244,29 +482,27 @@ export default function SalesEnterpriseDashboard() {
                   className="form-control"
                   required
                 >
-                  {availableMonths.map((m) => (
+                  {MONTHS.map((m) => (
                     <option key={m} value={m}>{m}</option>
                   ))}
                 </select>
               </div>
             </div>
-            <div className="form-row">
-              {Object.keys(formData).map((key) => (
-                <div className="form-group" key={key} style={{ flex: "1 1 150px" }}>
-                  <label>{key.replace(/_/g, " ").toUpperCase()}</label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    name={key}
-                    value={formData[key]}
-                    onChange={handleChange}
-                    placeholder="—"
-                    className="form-control"
-                  />
-                </div>
-              ))}
-            </div>
-            <div className="modal-footer">
+
+            {/* KPI sections */}
+            {editing ? (
+              // Edit mode: show all KPIs in one flat row (no category headers)
+              <div className="form-row" style={{ flexWrap: "wrap" }}>
+                {KPI_KEYS.map((key) => renderKpiCard(key))}
+              </div>
+            ) : (
+              // Add mode: grouped by category with headers
+              Object.entries(CATEGORIES).map(([title, keys]) =>
+                renderCategory(title, keys)
+              )
+            )}
+
+            <div className="modal-footer" style={{ marginTop: 16 }}>
               {editing && (
                 <button type="button" className="btn btn-secondary" onClick={cancelEdit}>
                   Cancel
@@ -279,186 +515,64 @@ export default function SalesEnterpriseDashboard() {
           </form>
         </div>
 
-        {/* Table with Filter Bar */}
-        <div className="card">
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", marginBottom: 16 }}>
-            <h3 style={{ margin: 0 }}>Existing KPIs</h3>
-            <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
-              <label style={{ fontSize: "0.9rem" }}>Filter by Department:</label>
-              <select
-                value={filterDepartment}
-                onChange={(e) => setFilterDepartment(e.target.value)}
-                className="form-control"
-                style={{ width: "auto", minWidth: 120 }}
-              >
-                <option value="All">All</option>
-                {DEPARTMENTS.map(d => <option key={d} value={d}>{d}</option>)}
-              </select>
-              <label style={{ fontSize: "0.9rem" }}>Month:</label>
-              <select
-                value={filterMonth}
-                onChange={(e) => setFilterMonth(e.target.value)}
-                className="form-control"
-                style={{ width: "auto", minWidth: 120 }}
-              >
-                <option value="All">All</option>
-                {ALL_MONTHS.map(m => <option key={m} value={m}>{m}</option>)}
-              </select>
-            </div>
-          </div>
-
-          {loading ? (
-            <div>Loading...</div>
-          ) : (
-            <div className="table-wrap">
-              <table className="data-table">
-                <thead>
-                  <tr>
-                    <th>Year</th>
-                    <th>Quarter</th>
-                    <th>Department</th>
-                    <th>Month</th>
-                    <th>Rev Growth</th>
-                    <th>Win Rate</th>
-                    <th>Stage Conv</th>
-                    <th>Pipeline Cov</th>
-                    <th>Sales Cycle</th>
-                    <th>CAC</th>
-                    <th>Rep Prod</th>
-                    <th>Ramp</th>
-                    <th>Lead Resp</th>
-                    <th>NRR</th>
-                    <th>Quota Att</th>
-                    <th>Forecast Acc</th>
-                    <th>Actions</th>
+        {/* Existing KPIs table */}
+        <h3>Existing KPIs</h3>
+        {loading ? (
+          <div>Loading...</div>
+        ) : (
+          <div className="card table-wrap">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>Year</th>
+                  <th>Quarter</th>
+                  <th>Department</th>
+                  <th>Month</th>
+                  <th>Rev Growth</th>
+                  <th>Win Rate</th>
+                  <th>Stage Conv</th>
+                  <th>Pipeline Cov</th>
+                  <th>Sales Cycle</th>
+                  <th>CAC</th>
+                  <th>Rep Prod</th>
+                  <th>Ramp</th>
+                  <th>Lead Resp</th>
+                  <th>NRR</th>
+                  <th>Quota Att</th>
+                  <th>Forecast Acc</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {kpis.map((k) => (
+                  <tr key={k.id}>
+                    <td>{k.year}</td>
+                    <td>{k.quarter}</td>
+                    <td>{k.department || "—"}</td>
+                    <td>{k.month || "—"}</td>
+                    <td>{k.revenue_growth ?? "—"}</td>
+                    <td>{k.win_rate ?? "—"}</td>
+                    <td>{k.stage_conversion ?? "—"}</td>
+                    <td>{k.pipeline_coverage ?? "—"}</td>
+                    <td>{k.sales_cycle_length ?? "—"}</td>
+                    <td>{k.cac ?? "—"}</td>
+                    <td>{k.rep_productivity ?? "—"}</td>
+                    <td>{k.ramp_time ?? "—"}</td>
+                    <td>{k.lead_response_time ?? "—"}</td>
+                    <td>{k.nrr ?? "—"}</td>
+                    <td>{k.quota_attainment ?? "—"}</td>
+                    <td>{k.forecast_accuracy ?? "—"}</td>
+                    <td>
+                      <button className="btn-icon" onClick={() => handleEdit(k)} title="Edit">✏️</button>
+                      <button className="btn-icon btn-icon--danger" onClick={() => handleDelete(k.id)} title="Delete">🗑️</button>
+                    </td>
                   </tr>
-                </thead>
-                <tbody>
-                  {filteredKpis.length === 0 ? (
-                    <tr><td colSpan="17" style={{ textAlign: "center", padding: "20px", color: "#6b7280" }}>No records match the filters.</td></tr>
-                  ) : (
-                    filteredKpis.map((k) => (
-                      <tr key={k.id}>
-                        <td>{k.year}</td>
-                        <td>{k.quarter}</td>
-                        <td>{k.department || "—"}</td>
-                        <td>{k.month || "—"}</td>
-                        <td>{k.revenue_growth ?? "—"}</td>
-                        <td>{k.win_rate ?? "—"}</td>
-                        <td>{k.stage_conversion ?? "—"}</td>
-                        <td>{k.pipeline_coverage ?? "—"}</td>
-                        <td>{k.sales_cycle_length ?? "—"}</td>
-                        <td>{k.cac ?? "—"}</td>
-                        <td>{k.rep_productivity ?? "—"}</td>
-                        <td>{k.ramp_time ?? "—"}</td>
-                        <td>{k.lead_response_time ?? "—"}</td>
-                        <td>{k.nrr ?? "—"}</td>
-                        <td>{k.quota_attainment ?? "—"}</td>
-                        <td>{k.forecast_accuracy ?? "—"}</td>
-                        <td>
-                          <button className="btn-icon" onClick={() => handleView(k)} title="View">
-                            👁️
-                          </button>
-                          <button className="btn-icon" onClick={() => handleEdit(k)} title="Edit">
-                            ✏️
-                          </button>
-                          <button className="btn-icon btn-icon--danger" onClick={() => handleDelete(k.id)} title="Delete">
-                            🗑️
-                          </button>
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
-      </main>
-
-      {/* View Modal */}
-      {viewModalOpen && viewKpi && (
-        <div className="modal-overlay" onClick={() => setViewModalOpen(false)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h3>KPI Details</h3>
-              <button className="btn-icon" onClick={() => setViewModalOpen(false)}>✕</button>
-            </div>
-            <div className="modal-body">
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
-                <div><strong>Year:</strong> {viewKpi.year}</div>
-                <div><strong>Quarter:</strong> {viewKpi.quarter}</div>
-                <div><strong>Department:</strong> {viewKpi.department || "—"}</div>
-                <div><strong>Month:</strong> {viewKpi.month || "—"}</div>
-                {Object.keys(KPI_DISPLAY_NAMES).map(key => (
-                  <div key={key}>
-                    <strong>{KPI_DISPLAY_NAMES[key]}:</strong> {viewKpi[key] ?? "—"}
-                  </div>
                 ))}
-              </div>
-            </div>
-            <div className="modal-footer">
-              <button className="btn btn-secondary" onClick={() => setViewModalOpen(false)}>Close</button>
-            </div>
+              </tbody>
+            </table>
           </div>
-        </div>
-      )}
-
-      {/* Styles for modal (add to your global CSS or inline) */}
-      <style>{`
-        .modal-overlay {
-          position: fixed;
-          top: 0; left: 0; right: 0; bottom: 0;
-          background: rgba(0,0,0,0.5);
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          z-index: 1000;
-        }
-        .modal {
-          background: white;
-          border-radius: 8px;
-          max-width: 700px;
-          width: 90%;
-          max-height: 80vh;
-          overflow-y: auto;
-          padding: 20px;
-          box-shadow: 0 10px 30px rgba(0,0,0,0.3);
-        }
-        .modal-header {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          border-bottom: 1px solid #e2e8f0;
-          padding-bottom: 12px;
-          margin-bottom: 16px;
-        }
-        .modal-body {
-          margin-bottom: 16px;
-        }
-        .modal-footer {
-          display: flex;
-          justify-content: flex-end;
-          border-top: 1px solid #e2e8f0;
-          padding-top: 12px;
-        }
-      `}</style>
+        )}
+      </main>
     </div>
   );
 }
-
-// Display names for modal (reuse from earlier, or define here)
-const KPI_DISPLAY_NAMES = {
-  revenue_growth: "Revenue Growth Rate",
-  win_rate: "Win Rate",
-  stage_conversion: "Stage Conversion Rate",
-  pipeline_coverage: "Pipeline Coverage",
-  sales_cycle_length: "Sales Cycle Length",
-  cac: "Customer Acquisition Cost (CAC)",
-  rep_productivity: "Rep Productivity",
-  ramp_time: "Ramp Time",
-  lead_response_time: "Lead Response Time",
-  nrr: "Net Revenue Retention (NRR)",
-  quota_attainment: "Quota Attainment",
-  forecast_accuracy: "Forecast Accuracy"
-};
