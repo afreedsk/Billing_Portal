@@ -7,7 +7,7 @@ import {
 } from "lucide-react";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
-  ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line,
+  ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line, AreaChart, Area
 } from "recharts";
 import Navbar from "../../components/Navbar.jsx";
 import StatCards from "../../components/StatCards.jsx";
@@ -25,36 +25,41 @@ const DEPARTMENTS_CONFIG = [
   { label: "Corporate Management", value: "Corporate" },
   { label: "Office Administration", value: "Adminstrationfunctionalunit" },
   { label: "CareDx", value: "Caredx" },
+  { label: "Dental", value: "Dental" },
   { label: "IT Development", value: "IT" },
   { label: "IT Sales", value: "IT Sales" },
   { label: "MedTech", value: "MedTech" },
   { label: "PCM", value: "PCM" },
   { label: "Research Development", value: "ResearchDevelopment" },
-  { label: "Dental", value: "Dental" },
   { label: "Sales Enterprise", value: "SalesEnterprise" },
 ];
 
 // ----- New sub‑departments for SalesEnterprise -----
+// ----- Sub‑departments for SalesEnterprise (in required order) -----
 const SUB_DEPARTMENTS = [
   "All",
+  "Corporate Management",
+  "Office Administration",
   "CareDx",
-  "MedTech",
-  "IT Sales",
-  "IT",
-  "Corporate",
-  "Office Management",
   "Dental",
+  "IT Development",
+  "IT Sales",
+  "MedTech",
+  "PCM",
+  "Research Development",
 ];
 
-// Map sub‑department name to main department value for summary API
+// Map sub‑department display name → main department value (for summary API)
 const SUB_DEPT_TO_MAIN = {
+  "Corporate Management": "Corporate",
+  "Office Administration": "Adminstrationfunctionalunit",
   "CareDx": "Caredx",
-  "MedTech": "MedTech",
-  "IT Sales": "IT Sales",
-  "IT": "IT",
-  "Corporate": "Corporate",
-  "Office Management": "Adminstrationfunctionalunit",
   "Dental": "Dental",
+  "IT Development": "IT",
+  "IT Sales": "IT Sales",
+  "MedTech": "MedTech",
+  "PCM": "PCM",
+  "Research Development": "ResearchDevelopment",
 };
 
 // ----- KPI display names and keys -----
@@ -844,158 +849,190 @@ export default function SuperAdminDashboard() {
 
         {/* ========== SALES ENTERPRISE VIEW ========== */}
         {activeDept === "SalesEnterprise" && (
-          <>
-            {loading || deptLoading ? (
-              <div className="card empty-state">Loading...</div>
-            ) : (
-              <>
-                {/* SUMMARY PANEL */}
-                <p className="section-title" style={{ marginBottom: 8 }}>
-                  Summary Panel {selectedSubDept !== "All" ? `– ${selectedSubDept}` : ""}
-                  {salesSelectedDept && ` (${DEPARTMENTS_CONFIG.find(d => d.value === salesSelectedDept)?.label || salesSelectedDept})`}
-                </p>
-                {deptSummary ? (
-                  <StatCards
-                    totalIncome={deptSummary.total_income}
-                    totalExpenses={deptSummary.total_expenses}
-                    profit={deptSummary.profit}
-                    entryCount={deptSummary.entry_count}
-                  />
-                ) : (
-                  <div className="stat-grid">
-                    <div className="card stat-card">
-                      <div className="stat-icon stat-icon--team"><Users size={22} /></div>
-                      <div>
-                        <p className="stat-label">Total Departments</p>
-                        <p className="stat-value">{overview?.total_members ?? "—"}</p>
-                      </div>
+  <>
+    {loading || deptLoading ? (
+      <div className="card empty-state">Loading...</div>
+    ) : (
+      <>
+        {/* SUMMARY PANEL */}
+        <p className="section-title" style={{ marginBottom: 8 }}>
+          Summary Panel {selectedSubDept !== "All" ? `– ${selectedSubDept}` : ""}
+          {salesSelectedDept && ` (${DEPARTMENTS_CONFIG.find(d => d.value === salesSelectedDept)?.label || salesSelectedDept})`}
+        </p>
+        {deptSummary ? (
+          <StatCards
+            totalIncome={deptSummary.total_income}
+            totalExpenses={deptSummary.total_expenses}
+            profit={deptSummary.profit}
+            entryCount={deptSummary.entry_count}
+          />
+        ) : (
+          <div className="stat-grid">
+            <div className="card stat-card">
+              <div className="stat-icon stat-icon--team"><Users size={22} /></div>
+              <div>
+                <p className="stat-label">Total Departments</p>
+                <p className="stat-value">{overview?.total_members ?? "—"}</p>
+              </div>
+            </div>
+            <div className="card stat-card">
+              <div className="stat-icon stat-icon--income"><TrendingUp size={22} /></div>
+              <div>
+                <p className="stat-label">Platform Income</p>
+                <p className="stat-value">{formatCurrency(overview?.total_income)}</p>
+              </div>
+            </div>
+            <div className="card stat-card">
+              <div className="stat-icon stat-icon--expense"><TrendingDown size={22} /></div>
+              <div>
+                <p className="stat-label">Platform Expenses</p>
+                <p className="stat-value">{formatCurrency(overview?.total_expenses)}</p>
+              </div>
+            </div>
+            <div className="card stat-card">
+              <div className="stat-icon stat-icon--profit"><Wallet size={22} /></div>
+              <div>
+                <p className="stat-label">Platform Profit</p>
+                <p className="stat-value">{formatCurrency(overview?.total_profit)}</p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* CATEGORIES PANEL – show averages per KPI */}
+        <p className="section-title" style={{ marginBottom: 8 }}>Categories Panel</p>
+        <div className="card">
+          {selectedSubDept === "All" ? (
+            <div style={{ textAlign: "center", padding: "20px 0", color: "#6b7280" }}>
+              Select a sub‑department to view its KPI averages.
+            </div>
+          ) : salesKpisLoading ? (
+            <div style={{ textAlign: "center", padding: "20px 0", color: "#6b7280" }}>Loading KPIs...</div>
+          ) : salesKpis.length === 0 ? (
+            <div style={{ textAlign: "center", padding: "20px 0", color: "#6b7280" }}>
+              No KPI data found for {selectedSubDept} in the selected period.
+            </div>
+          ) : (
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: "16px" }}>
+              {KPI_KEYS.map((key) => {
+                const avg = salesAggregated.averages[key];
+                return (
+                  <div
+                    key={key}
+                    style={{
+                      padding: "12px",
+                      border: "1px solid #e2e8f0",
+                      borderRadius: "8px",
+                      background: "#f9fafb",
+                      textAlign: "center",
+                    }}
+                  >
+                    <div style={{ fontSize: "0.75rem", fontWeight: "600", color: "#4a5568", marginBottom: "4px" }}>
+                      {KPI_DISPLAY_NAMES[key]}
                     </div>
-                    <div className="card stat-card">
-                      <div className="stat-icon stat-icon--income"><TrendingUp size={22} /></div>
-                      <div>
-                        <p className="stat-label">Platform Income</p>
-                        <p className="stat-value">{formatCurrency(overview?.total_income)}</p>
-                      </div>
-                    </div>
-                    <div className="card stat-card">
-                      <div className="stat-icon stat-icon--expense"><TrendingDown size={22} /></div>
-                      <div>
-                        <p className="stat-label">Platform Expenses</p>
-                        <p className="stat-value">{formatCurrency(overview?.total_expenses)}</p>
-                      </div>
-                    </div>
-                    <div className="card stat-card">
-                      <div className="stat-icon stat-icon--profit"><Wallet size={22} /></div>
-                      <div>
-                        <p className="stat-label">Platform Profit</p>
-                        <p className="stat-value">{formatCurrency(overview?.total_profit)}</p>
-                      </div>
+                    <div style={{ fontSize: "1.1rem", fontWeight: "bold", color: "#1a202c" }}>
+                      {avg !== null && avg !== undefined ? avg.toFixed(2) : "—"}
                     </div>
                   </div>
-                )}
+                );
+              })}
+            </div>
+          )}
+        </div>
 
-                {/* CATEGORIES PANEL – show averages per KPI */}
-                <p className="section-title" style={{ marginBottom: 8 }}>Categories Panel</p>
-                <div className="card">
-                  {selectedSubDept === "All" ? (
-                    <div style={{ textAlign: "center", padding: "20px 0", color: "#6b7280" }}>
-                      Select a sub‑department to view its KPI averages.
-                    </div>
-                  ) : salesKpisLoading ? (
-                    <div style={{ textAlign: "center", padding: "20px 0", color: "#6b7280" }}>Loading KPIs...</div>
-                  ) : salesKpis.length === 0 ? (
-                    <div style={{ textAlign: "center", padding: "20px 0", color: "#6b7280" }}>
-                      No KPI data found for {selectedSubDept} in the selected period.
-                    </div>
-                  ) : (
-                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: "16px" }}>
-                      {KPI_KEYS.map((key) => {
-                        const avg = salesAggregated.averages[key];
-                        return (
-                          <div
-                            key={key}
-                            style={{
-                              padding: "12px",
-                              border: "1px solid #e2e8f0",
-                              borderRadius: "8px",
-                              background: "#f9fafb",
-                              textAlign: "center",
-                            }}
-                          >
-                            <div style={{ fontSize: "0.75rem", fontWeight: "600", color: "#4a5568", marginBottom: "4px" }}>
-                              {KPI_DISPLAY_NAMES[key]}
-                            </div>
-                            <div style={{ fontSize: "1.1rem", fontWeight: "bold", color: "#1a202c" }}>
-                              {avg !== null && avg !== undefined ? avg.toFixed(2) : "—"}
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
+        {/* DISPLAY PANEL – dynamic chart types */}
+        <p className="section-title" style={{ marginBottom: 8 }}>
+          Display Panel {selectedSubDept !== "All" ? `– ${selectedSubDept}` : ""}
+        </p>
+        <div className="card">
+          {selectedSubDept === "All" ? (
+            <div style={{ textAlign: "center", padding: "30px 0", color: "#6b7280" }}>
+              Select a sub‑department to view monthly KPI trends.
+            </div>
+          ) : salesKpisLoading ? (
+            <div style={{ textAlign: "center", padding: "30px 0", color: "#6b7280" }}>Loading charts...</div>
+          ) : salesKpis.length === 0 ? (
+            <div style={{ textAlign: "center", padding: "30px 0", color: "#6b7280" }}>
+              No KPI data available for {selectedSubDept} in the selected period.
+            </div>
+          ) : (
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "16px" }}>
+              {KPI_KEYS.map((key) => {
+                const chartData = salesAggregated.monthlyData.map(item => ({
+                  month: item.month,
+                  value: item[key] !== null && item[key] !== undefined ? item[key] : 0,
+                }));
 
-                {/* DISPLAY PANEL – monthly bar charts per KPI */}
-                <p className="section-title" style={{ marginBottom: 8 }}>
-                  Display Panel {selectedSubDept !== "All" ? `– ${selectedSubDept}` : ""}
-                </p>
-                <div className="card">
-                  {selectedSubDept === "All" ? (
-                    <div style={{ textAlign: "center", padding: "30px 0", color: "#6b7280" }}>
-                      Select a sub‑department to view monthly KPI trends.
-                    </div>
-                  ) : salesKpisLoading ? (
-                    <div style={{ textAlign: "center", padding: "30px 0", color: "#6b7280" }}>Loading charts...</div>
-                  ) : salesKpis.length === 0 ? (
-                    <div style={{ textAlign: "center", padding: "30px 0", color: "#6b7280" }}>
-                      No KPI data available for {selectedSubDept} in the selected period.
-                    </div>
-                  ) : (
-                    <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "16px" }}>
-                      {KPI_KEYS.map((key) => {
-                        // Prepare chart data from monthlyData
-                        const chartData = salesAggregated.monthlyData.map(item => ({
-                          month: item.month,
-                          value: item[key] !== null && item[key] !== undefined ? item[key] : 0,
-                        }));
+                const displayName = KPI_DISPLAY_NAMES[key];
 
-                        const displayName = KPI_DISPLAY_NAMES[key];
+                // ---- Choose chart type based on KPI ----
+                let ChartComponent;
+                ChartComponent = BarChart; // default
+                if (["revenue_growth", "win_rate", "nrr", "forecast_accuracy", "rep_productivity"].includes(key)) {
+                  ChartComponent = LineChart;
+                }
+                if (key === "revenue_growth") {
+                  ChartComponent = AreaChart;
+                }
 
-                        return (
-                          <div
-                            key={key}
-                            style={{
-                              border: "1px solid #e2e8f0",
-                              borderRadius: "8px",
-                              padding: "8px",
-                              background: "#f9fafb",
-                            }}
-                          >
-                            <div style={{ fontSize: "0.7rem", fontWeight: "600", color: "#4a5568", textAlign: "center", marginBottom: "4px" }}>
-                              {displayName}
-                            </div>
-                            <ResponsiveContainer width="100%" height={120}>
-                              <BarChart data={chartData}>
-                                <CartesianGrid strokeDasharray="2 2" stroke="#e2e8f0" />
-                                <XAxis dataKey="month" tick={{ fontSize: 9 }} />
-                                <YAxis tick={{ fontSize: 9 }} domain={['auto', 'auto']} />
-                                <Tooltip
-                                  formatter={(v) => (typeof v === 'number' ? v.toFixed(2) : v)}
-                                  labelFormatter={(label) => label}
-                                />
-                                <Bar dataKey="value" fill="#2f5dd4" />
-                              </BarChart>
-                            </ResponsiveContainer>
-                          </div>
-                        );
-                      })}
+                // ---- Color palette ----
+                const colorPalette = [
+                  "#2f5dd4", "#16a34a", "#d97706", "#8b5cf6", "#dc2626",
+                  "#0ea5e9", "#f43f5e", "#84cc16", "#f59e0b", "#ec4899", "#14b8a6"
+                ];
+                const colorIndex = KPI_KEYS.indexOf(key) % colorPalette.length;
+                const chartColor = colorPalette[colorIndex];
+
+                return (
+                  <div
+                    key={key}
+                    style={{
+                      border: "1px solid #e2e8f0",
+                      borderRadius: "8px",
+                      padding: "8px",
+                      background: "#f9fafb",
+                    }}
+                  >
+                    <div style={{ fontSize: "0.7rem", fontWeight: "600", color: "#4a5568", textAlign: "center", marginBottom: "4px" }}>
+                      {displayName}
                     </div>
-                  )}
-                </div>
-              </>
-            )}
-          </>
-        )}
+                    <ResponsiveContainer width="100%" height={120}>
+                      <ChartComponent data={chartData}>
+                        <CartesianGrid strokeDasharray="2 2" stroke="#e2e8f0" />
+                        <XAxis dataKey="month" tick={{ fontSize: 9 }} />
+                        <YAxis tick={{ fontSize: 9 }} domain={['auto', 'auto']} />
+                        <Tooltip
+                          formatter={(v) => (typeof v === 'number' ? v.toFixed(2) : v)}
+                          labelFormatter={(label) => label}
+                        />
+                        {ChartComponent === BarChart && (
+                          <Bar dataKey="value" fill={chartColor} radius={[4, 4, 0, 0]} />
+                        )}
+                        {ChartComponent === LineChart && (
+                          <Line type="monotone" dataKey="value" stroke={chartColor} strokeWidth={2} dot={{ r: 3 }} />
+                        )}
+                        {ChartComponent === AreaChart && (
+                          <Area
+                            type="monotone"
+                            dataKey="value"
+                            stroke={chartColor}
+                            fill={chartColor}
+                            fillOpacity={0.3}
+                            strokeWidth={2}
+                          />
+                        )}
+                      </ChartComponent>
+                    </ResponsiveContainer>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </>
+    )}
+  </>
+)}
 
         {/* ========== OTHER DEPARTMENTS ========== */}
         {activeDept !== "overview" && activeDept !== "SalesEnterprise" && (

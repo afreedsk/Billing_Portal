@@ -9,8 +9,26 @@ const MONTHS = [
   "January", "February", "March", "April", "May", "June",
   "July", "August", "September", "October", "November", "December"
 ];
-const DEPARTMENTS = ["IT", "IT sales", "MedTech", "CareDx", "PCM"];
+const DEPARTMENTS = [
+  "Corporate Management",
+  "Office Administration",
+  "CareDx",
+  "Dental",
+  "IT Development",
+  "IT Sales",
+  "MedTech",
+  "PCM",
+  "Research Development",
+];
 const currentYear = new Date().getFullYear();
+
+// ----- Quarter → months mapping -----
+const QUARTER_MONTHS = {
+  Q1: ["January", "February", "March"],
+  Q2: ["April", "May", "June"],
+  Q3: ["July", "August", "September"],
+  Q4: ["October", "November", "December"]
+};
 
 // ----- Display names for each KPI -----
 const KPI_DISPLAY_NAMES = {
@@ -163,6 +181,13 @@ export default function SalesEnterpriseDashboard() {
   const [department, setDepartment] = useState("IT");
   const [month, setMonth] = useState("January");
 
+  // --- Filter state for the table ---
+  const [filterDepartment, setFilterDepartment] = useState("");
+  const [filterMonth, setFilterMonth] = useState("");
+
+  // --- View modal state ---
+  const [viewingKpi, setViewingKpi] = useState(null); // holds the KPI object to view
+
   const [formData, setFormData] = useState(
     KPI_KEYS.reduce((acc, key) => ({ ...acc, [key]: "" }), {})
   );
@@ -205,48 +230,67 @@ export default function SalesEnterpriseDashboard() {
     fetchKpis();
   }, [fetchKpis]);
 
+  // Handle raw input changes for formula fields
   const handleRawChange = (e) => {
     const { name, value } = e.target;
     setRawInputs((prev) => ({ ...prev, [name]: value }));
   };
 
+  // Handle direct input changes (for direct-entry KPIs or edit mode)
   const handleDirectChange = (e) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
   };
 
   const handleSubmit = async (e) => {
-    e.preventDefault();
-    if (!year || !quarter || !department || !month) {
-      toast.error("Year, Quarter, Department, and Month are required.");
+  e.preventDefault();
+  if (!year || !quarter || !department || !month) {
+    toast.error("Year, Quarter, Department, and Month are required.");
+    return;
+  }
+
+  // --- Duplicate check (only for new entries) ---
+  if (!editing) {
+    const duplicate = kpis.some(
+      (k) =>
+        k.year === parseInt(year) &&
+        k.quarter === quarter &&
+        k.department === department &&
+        k.month === month
+    );
+    if (duplicate) {
+      toast.error(
+        `A KPI record already exists for ${department} – ${month} ${year} (${quarter}).`
+      );
       return;
     }
-    const payload = {
-      year: parseInt(year),
-      quarter,
-      department,
-      month,
-      ...formData,
-    };
-    for (let key in payload) {
-      if (payload[key] === "") payload[key] = null;
-    }
+  }
 
-    try {
-      if (editing) {
-        await api.put(`/salesenterprise/kpis/${editing}`, payload);
-        toast.success("KPI updated");
-      } else {
-        await api.post("/salesenterprise/kpis", payload);
-        toast.success("KPI added");
-      }
-      resetForm();
-      fetchKpis();
-    } catch (err) {
-      const msg = err.response?.data?.message || "Failed to save KPI";
-      toast.error(msg);
-    }
+  const payload = {
+    year: parseInt(year),
+    quarter,
+    department,
+    month,
+    ...formData,
   };
+  for (let key in payload) {
+    if (payload[key] === "") payload[key] = null;
+  }
 
+  try {
+    if (editing) {
+      await api.put(`/salesenterprise/kpis/${editing}`, payload);
+      toast.success("KPI updated");
+    } else {
+      await api.post("/salesenterprise/kpis", payload);
+      toast.success("KPI added");
+    }
+    resetForm();
+    fetchKpis();
+  } catch (err) {
+    const msg = err.response?.data?.message || "Failed to save KPI";
+    toast.error(msg);
+  }
+};
   const handleEdit = (kpi) => {
     setEditing(kpi.id);
     setYear(kpi.year);
@@ -284,13 +328,22 @@ export default function SalesEnterpriseDashboard() {
 
   const cancelEdit = resetForm;
 
-  // ----- Render a single KPI card -----
+  // ----- Quarter → months filter for the dropdown -----
+  const availableMonths = QUARTER_MONTHS[quarter] || [];
+
+  // ----- Client‑side filtering for the table -----
+  const filteredKpis = kpis.filter(k => {
+    const deptMatch = filterDepartment ? k.department === filterDepartment : true;
+    const monthMatch = filterMonth ? k.month === filterMonth : true;
+    return deptMatch && monthMatch;
+  });
+
+  // ----- Render a single KPI card (unchanged) -----
   const renderKpiCard = (key) => {
     const config = FORMULA_CONFIG[key];
     const isFormula = config.inputs && config.inputs.length > 0;
     const displayName = KPI_DISPLAY_NAMES[key] || key.replace(/_/g, " ").toUpperCase();
 
-    // Common card style
     const cardStyle = {
       flex: "1 1 220px",
       minWidth: "200px",
@@ -303,7 +356,6 @@ export default function SalesEnterpriseDashboard() {
     };
 
     if (editing) {
-      // Edit mode: show a simple input with the name
       return (
         <div key={key} style={cardStyle}>
           <div style={{ fontSize: "0.75rem", fontWeight: "600", color: "#2d3748", marginBottom: "4px" }}>
@@ -323,9 +375,7 @@ export default function SalesEnterpriseDashboard() {
       );
     }
 
-    // Add mode
     if (isFormula) {
-      // Formula card: show name, formula display, input fields, and computed result
       return (
         <div key={key} style={cardStyle}>
           <div style={{ fontSize: "0.8rem", fontWeight: "600", color: "#1a202c", marginBottom: "2px" }}>
@@ -369,7 +419,6 @@ export default function SalesEnterpriseDashboard() {
         </div>
       );
     } else {
-      // Direct-entry (ramp_time, lead_response_time) – same card but no formula, single editable input
       return (
         <div key={key} style={cardStyle}>
           <div style={{ fontSize: "0.8rem", fontWeight: "600", color: "#1a202c", marginBottom: "4px" }}>
@@ -390,7 +439,7 @@ export default function SalesEnterpriseDashboard() {
     }
   };
 
-  // ----- Render a category with its KPIs (ONLY THIS FUNCTION IS CHANGED) -----
+  // ----- Render a category with its KPIs -----
   const renderCategory = (title, keys) => {
     const isEfficiency = title === "⚡ Efficiency KPIs";
 
@@ -411,7 +460,6 @@ export default function SalesEnterpriseDashboard() {
           {keys.map((key) => {
             const card = renderKpiCard(key);
             if (isEfficiency) {
-              // Override card styles to fill grid cells properly
               return React.cloneElement(card, {
                 style: {
                   ...card.props.style,
@@ -429,14 +477,55 @@ export default function SalesEnterpriseDashboard() {
     );
   };
 
+  // ----- View Modal -----
+  const ViewModal = ({ kpi, onClose }) => {
+    if (!kpi) return null;
+    return (
+      <div style={{
+        position: "fixed",
+        top: 0, left: 0, right: 0, bottom: 0,
+        background: "rgba(0,0,0,0.5)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        zIndex: 1000
+      }}>
+        <div style={{
+          background: "#fff",
+          padding: "24px",
+          borderRadius: "12px",
+          maxWidth: "600px",
+          width: "90%",
+          maxHeight: "80vh",
+          overflowY: "auto"
+        }}>
+          <h3 style={{ marginTop: 0, borderBottom: "1px solid #e2e8f0", paddingBottom: "8px" }}>
+            KPI Details – {kpi.department} ({kpi.quarter} {kpi.year})
+          </h3>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px 16px", margin: "16px 0" }}>
+            {KPI_KEYS.map(key => (
+              <div key={key} style={{ display: "flex", justifyContent: "space-between", borderBottom: "1px solid #f0f0f0", padding: "4px 0" }}>
+                <span style={{ fontWeight: "500", color: "#4a5568" }}>{KPI_DISPLAY_NAMES[key]}:</span>
+                <span>{kpi[key] ?? "—"}</span>
+              </div>
+            ))}
+          </div>
+          <button className="btn btn-secondary" onClick={onClose} style={{ marginTop: "8px" }}>
+            Close
+          </button>
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div className="page">
-      <Navbar title="Sales Enterprise Dashboard" roleColor="#f97316" />
+      <Navbar title="Sales Enterprise Portal" roleColor="#f97316" />
       <main className="page-main">
+        {/* Add/Edit Form */}
         <div className="card" style={{ marginBottom: 24 }}>
           <h2>{editing ? "Edit" : "Add"} KPI for Quarter</h2>
           <form onSubmit={handleSubmit}>
-            {/* Common fields */}
             <div className="form-row">
               <div className="form-group">
                 <label>Year</label>
@@ -452,7 +541,14 @@ export default function SalesEnterpriseDashboard() {
                 <label>Quarter</label>
                 <select
                   value={quarter}
-                  onChange={(e) => setQuarter(e.target.value)}
+                  onChange={(e) => {
+                    setQuarter(e.target.value);
+                    // Auto‑select the first month of that quarter
+                    const months = QUARTER_MONTHS[e.target.value];
+                    if (months && months.length) {
+                      setMonth(months[0]);
+                    }
+                  }}
                   className="form-control"
                   required
                 >
@@ -482,7 +578,7 @@ export default function SalesEnterpriseDashboard() {
                   className="form-control"
                   required
                 >
-                  {MONTHS.map((m) => (
+                  {availableMonths.map((m) => (
                     <option key={m} value={m}>{m}</option>
                   ))}
                 </select>
@@ -491,12 +587,10 @@ export default function SalesEnterpriseDashboard() {
 
             {/* KPI sections */}
             {editing ? (
-              // Edit mode: show all KPIs in one flat row (no category headers)
               <div className="form-row" style={{ flexWrap: "wrap" }}>
                 {KPI_KEYS.map((key) => renderKpiCard(key))}
               </div>
             ) : (
-              // Add mode: grouped by category with headers
               Object.entries(CATEGORIES).map(([title, keys]) =>
                 renderCategory(title, keys)
               )
@@ -515,7 +609,48 @@ export default function SalesEnterpriseDashboard() {
           </form>
         </div>
 
-        {/* Existing KPIs table */}
+        {/* Filter Bar */}
+        <div style={{ display: "flex", gap: "16px", alignItems: "center", marginBottom: "16px", flexWrap: "wrap" }}>
+          <div className="form-group" style={{ marginBottom: 0 }}>
+            <label style={{ marginRight: "6px" }}>Filter by Department:</label>
+            <select
+              value={filterDepartment}
+              onChange={(e) => setFilterDepartment(e.target.value)}
+              className="form-control"
+              style={{ display: "inline-block", width: "auto" }}
+            >
+              <option value="">All</option>
+              {DEPARTMENTS.map(d => (
+                <option key={d} value={d}>{d}</option>
+              ))}
+            </select>
+          </div>
+          <div className="form-group" style={{ marginBottom: 0 }}>
+            <label style={{ marginRight: "6px" }}>Filter by Month:</label>
+            <select
+              value={filterMonth}
+              onChange={(e) => setFilterMonth(e.target.value)}
+              className="form-control"
+              style={{ display: "inline-block", width: "auto" }}
+            >
+              <option value="">All</option>
+              {MONTHS.map(m => (
+                <option key={m} value={m}>{m}</option>
+              ))}
+            </select>
+          </div>
+          {(filterDepartment || filterMonth) && (
+            <button
+              className="btn btn-secondary"
+              onClick={() => { setFilterDepartment(""); setFilterMonth(""); }}
+              style={{ fontSize: "0.8rem" }}
+            >
+              Clear Filters
+            </button>
+          )}
+        </div>
+
+        {/* Existing KPIs Table */}
         <h3>Existing KPIs</h3>
         {loading ? (
           <div>Loading...</div>
@@ -544,7 +679,7 @@ export default function SalesEnterpriseDashboard() {
                 </tr>
               </thead>
               <tbody>
-                {kpis.map((k) => (
+                {filteredKpis.map((k) => (
                   <tr key={k.id}>
                     <td>{k.year}</td>
                     <td>{k.quarter}</td>
@@ -563,16 +698,25 @@ export default function SalesEnterpriseDashboard() {
                     <td>{k.quota_attainment ?? "—"}</td>
                     <td>{k.forecast_accuracy ?? "—"}</td>
                     <td>
+                      <button className="btn-icon" onClick={() => setViewingKpi(k)} title="View">👁️</button>
                       <button className="btn-icon" onClick={() => handleEdit(k)} title="Edit">✏️</button>
                       <button className="btn-icon btn-icon--danger" onClick={() => handleDelete(k.id)} title="Delete">🗑️</button>
                     </td>
                   </tr>
                 ))}
+                {filteredKpis.length === 0 && (
+                  <tr><td colSpan="17" style={{ textAlign: "center", padding: "20px" }}>No KPIs match the filters.</td></tr>
+                )}
               </tbody>
             </table>
           </div>
         )}
       </main>
+
+      {/* View Modal */}
+      {viewingKpi && (
+        <ViewModal kpi={viewingKpi} onClose={() => setViewingKpi(null)} />
+      )}
     </div>
   );
 }

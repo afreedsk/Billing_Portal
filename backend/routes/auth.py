@@ -55,8 +55,8 @@ def login():
     if not user.is_active:
         return jsonify({"message": "This account has been disabled. Contact SuperAdmin."}), 403
 
-    # 2FA for Admin / SuperAdmin
-    if user.role.lower() in ["admin", "superadmin"]:
+    # 2FA for Admin / SuperAdmin / SalesEnterprise
+    if user.role.lower() in ["admin", "superadmin", "salesenterprise"]:
         temp_token = secrets.token_urlsafe(32)
         otp_code = f"{secrets.randbelow(1000000):06d}"
         
