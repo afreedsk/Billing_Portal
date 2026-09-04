@@ -330,6 +330,7 @@ def _get_caredx_entries_and_summary(for_summary=False):
     lab_entries = []
     expenses = []
 
+    # -------------------- Lab entries --------------------
     if section is None or section == "lab":
         lab_query = CaredxLabEntry.query
         if start_date:
@@ -351,6 +352,7 @@ def _get_caredx_entries_and_summary(for_summary=False):
             CaredxLabEntry.id.desc()
         ).all()
 
+    # -------------------- Expenses --------------------
     if section is None or section == "expenses":
         exp_query = CaredxExpense.query
         if start_date:
@@ -369,6 +371,7 @@ def _get_caredx_entries_and_summary(for_summary=False):
             CaredxExpense.id.desc()
         ).all()
 
+        # Salary entries from Corporate
         salary_category = DEPARTMENT_CONFIG.get("Corporate", {}).get("is_salary_category", "Personnel & Payroll")
         salary_items = []
         if category is None or category == salary_category:
@@ -410,69 +413,124 @@ def _get_caredx_entries_and_summary(for_summary=False):
         all_expenses.sort(key=lambda x: x["expense_date"], reverse=True)
         expenses = all_expenses
 
-    if for_summary:
-        if section == "lab":
-            total_income = sum(float(e.total_amount_paid) for e in lab_entries)
-            total_paid = sum(float(e.paid_to_other_labs or 0) for e in lab_entries)
-
-            by_date = {}
-            for e in lab_entries:
-                key = e.entry_date.isoformat()
-                by_date.setdefault(key, {"date": key, "income": 0, "expenses": 0})
-                by_date[key]["income"] += float(e.total_amount_paid)
-            trend = sorted(by_date.values(), key=lambda x: x["date"])
-
-            by_category = {}
-            for e in lab_entries:
-                cat = e.test_name or "Uncategorized"
-                by_category.setdefault(cat, {"category": cat, "amount": 0})
-                by_category[cat]["amount"] += float(e.total_amount_paid)
-            category_breakdown = list(by_category.values())
-
-            return {
-                "department": "Caredx",
-                "section": "lab",
-                "total_income": total_income,
-                "total_expenses": 0,
-                "total_paid_to_other_labs": total_paid,
-                "profit": total_income - total_paid,
-                "entry_count": len(lab_entries),
-                "trend": trend,
-                "category_breakdown": category_breakdown,
-            }
-
-        total_expenses = sum(float(e["amount"]) for e in expenses)
-        by_date = {}
-        for e in expenses:
-            key = e["expense_date"]
-            by_date.setdefault(key, {"date": key, "expenses": 0})
-            by_date[key]["expenses"] += float(e["amount"])
-        trend = sorted(by_date.values(), key=lambda x: x["date"])
-
-        by_category = {}
-        for e in expenses:
-            cat = e["category"] or "Uncategorized"
-            by_category.setdefault(cat, {"category": cat, "amount": 0})
-            by_category[cat]["amount"] += float(e["amount"])
-
+    # ---- Return for entries (not summary) ----
+    if not for_summary:
         return {
-            "department": "Caredx",
-            "section": "expenses",
-            "total_income": 0,
-            "total_expenses": total_expenses,
-            "total_paid_to_other_labs": 0,
-            "profit": -total_expenses,
-            "entry_count": len(expenses),
+            "lab_entries": [e.to_dict() for e in lab_entries],
+            "expenses": expenses
+        }
+
+    # ---- Build summary helpers ----
+    def build_lab_summary(entries):
+        total_income = sum(float(e.total_amount_paid) for e in entries)
+        total_paid_other = sum(float(e.paid_to_other_labs or 0) for e in entries)
+        by_date = {}
+        for e in entries:
+            key = e.entry_date.isoformat()
+            by_date.setdefault(key, {"date": key, "income": 0, "expenses": 0})
+            by_date[key]["income"] += float(e.total_amount_paid)
+        trend = sorted(by_date.values(), key=lambda x: x["date"])
+        by_category = {}
+        for e in entries:
+            cat = e.test_name or "Uncategorized"
+            by_category.setdefault(cat, {"category": cat, "amount": 0})
+            by_category[cat]["amount"] += float(e.total_amount_paid)
+        return {
+            "total_income": total_income,
+            "total_paid_to_other_labs": total_paid_other,
+            "entry_count": len(entries),
             "trend": trend,
             "category_breakdown": list(by_category.values()),
         }
 
+    def build_expenses_summary(exp_list):
+        total_expenses = sum(float(e["amount"]) for e in exp_list)
+        by_date = {}
+        for e in exp_list:
+            key = e["expense_date"]
+            by_date.setdefault(key, {"date": key, "expenses": 0})
+            by_date[key]["expenses"] += float(e["amount"])
+        trend = sorted(by_date.values(), key=lambda x: x["date"])
+        by_category = {}
+        for e in exp_list:
+            cat = e["category"] or "Uncategorized"
+            by_category.setdefault(cat, {"category": cat, "amount": 0})
+            by_category[cat]["amount"] += float(e["amount"])
+        return {
+            "total_expenses": total_expenses,
+            "entry_count": len(exp_list),
+            "trend": trend,
+            "category_breakdown": list(by_category.values()),
+        }
+
+    # ---- Return based on section ----
+    if section == "lab":
+        lab_summary = build_lab_summary(lab_entries)
+        return {
+            "department": "Caredx",
+            "section": "lab",
+            "total_income": lab_summary["total_income"],
+            "total_expenses": 0,
+            "total_paid_to_other_labs": lab_summary["total_paid_to_other_labs"],
+            "profit": lab_summary["total_income"],
+            "entry_count": lab_summary["entry_count"],
+            "trend": lab_summary["trend"],
+            "category_breakdown": lab_summary["category_breakdown"],
+        }
+
+    if section == "expenses":
+        exp_summary = build_expenses_summary(expenses)
+        return {
+            "department": "Caredx",
+            "section": "expenses",
+            "total_income": 0,
+            "total_expenses": exp_summary["total_expenses"],
+            "total_paid_to_other_labs": 0,
+            "profit": -exp_summary["total_expenses"],
+            "entry_count": exp_summary["entry_count"],
+            "trend": exp_summary["trend"],
+            "category_breakdown": exp_summary["category_breakdown"],
+        }
+
+    # ---- Combined summary (section is None or "all") ----
+    lab_summary = build_lab_summary(lab_entries)
+    exp_summary = build_expenses_summary(expenses)
+
+    total_income = lab_summary["total_income"]
+    total_expenses = exp_summary["total_expenses"]
+    total_paid_other = lab_summary["total_paid_to_other_labs"]
+
+    # Merge trends
+    trend_map = {}
+    for item in lab_summary["trend"]:
+        trend_map[item["date"]] = {"date": item["date"], "income": item["income"], "expenses": 0}
+    for item in exp_summary["trend"]:
+        if item["date"] in trend_map:
+            trend_map[item["date"]]["expenses"] += item["expenses"]
+        else:
+            trend_map[item["date"]] = {"date": item["date"], "income": 0, "expenses": item["expenses"]}
+    combined_trend = sorted(trend_map.values(), key=lambda x: x["date"])
+
+    # Merge categories
+    combined_categories = {}
+    for item in lab_summary["category_breakdown"]:
+        combined_categories[item["category"]] = {"category": item["category"], "amount": item["amount"]}
+    for item in exp_summary["category_breakdown"]:
+        if item["category"] in combined_categories:
+            combined_categories[item["category"]]["amount"] += item["amount"]
+        else:
+            combined_categories[item["category"]] = {"category": item["category"], "amount": item["amount"]}
+
     return {
-        "lab_entries": [e.to_dict() for e in lab_entries],
-        "expenses": expenses
+        "department": "Caredx",
+        "total_income": total_income,
+        "total_expenses": total_expenses,
+        "total_paid_to_other_labs": total_paid_other,
+        "profit": total_income - total_expenses,
+        "entry_count": lab_summary["entry_count"] + exp_summary["entry_count"],
+        "trend": combined_trend,
+        "category_breakdown": list(combined_categories.values()),
     }
-
-
 # ----------------------------------------------------------------------
 # Department entries – with PAGINATION (for all non-SalesEnterprise depts)
 # ----------------------------------------------------------------------

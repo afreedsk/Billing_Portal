@@ -133,7 +133,10 @@ table {
   letter-spacing: 0.05em;
   color: var(--color-ink-500);
 }
-
+.stat-icon--other-labs {
+  background-color: #8b5cf6; /* Purple – matches the card's theme */
+  color: #fff;
+}
 /* 4. Navbar ----------------------------------------------------------------- */
 .navbar {
   position: sticky;

@@ -1,8 +1,20 @@
+// frontend/src/components/StatCards.jsx
 import React from "react";
-import { TrendingUp, TrendingDown, Wallet, Users, FileText } from "lucide-react";
+import {
+  TrendingUp,
+  TrendingDown,
+  Wallet,
+  Users,
+  FileText,
+  CreditCard,   // Used for "Paid to Other Labs"
+} from "lucide-react";
 
 const formatCurrency = (value) =>
-  new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 }).format(value || 0);
+  new Intl.NumberFormat("en-IN", {
+    style: "currency",
+    currency: "INR",
+    maximumFractionDigits: 0,
+  }).format(value || 0);
 
 function StatCard({ icon: Icon, label, value, iconClass, sub }) {
   return (
@@ -19,22 +31,57 @@ function StatCard({ icon: Icon, label, value, iconClass, sub }) {
   );
 }
 
-export default function StatCards({ totalIncome, totalExpenses, profit, entryCount, teamMembers }) {
+export default function StatCards({
+  totalIncome,
+  totalExpenses,
+  profit,
+  entryCount,
+  teamMembers,
+  paidToOtherLabs,
+}) {
   const isProfitNegative = profit < 0;
 
   return (
     <div className="stat-grid">
-      <StatCard icon={TrendingUp} label="Income" value={formatCurrency(totalIncome)} iconClass="stat-icon--income" />
-      <StatCard icon={TrendingDown} label="Expenses" value={formatCurrency(totalExpenses)} iconClass="stat-icon--expense" />
+      <StatCard
+        icon={TrendingUp}
+        label="Income"
+        value={formatCurrency(totalIncome)}
+        iconClass="stat-icon--income"
+      />
+      <StatCard
+        icon={TrendingDown}
+        label="Expenses"
+        value={formatCurrency(totalExpenses)}
+        iconClass="stat-icon--expense"
+      />
       <StatCard
         icon={Wallet}
         label="Profit"
         value={formatCurrency(profit)}
         iconClass={`stat-icon--profit ${isProfitNegative ? "negative" : ""}`}
       />
-      <StatCard icon={FileText} label="Total Entries" value={entryCount ?? 0} iconClass="stat-icon--entries" />
+      <StatCard
+        icon={FileText}
+        label="Total Entries"
+        value={entryCount ?? 0}
+        iconClass="stat-icon--entries"
+      />
       {teamMembers !== undefined && (
-        <StatCard icon={Users} label="Team Members" value={teamMembers} iconClass="stat-icon--team" />
+        <StatCard
+          icon={Users}
+          label="Team Members"
+          value={teamMembers}
+          iconClass="stat-icon--team"
+        />
+      )}
+      {paidToOtherLabs !== undefined && paidToOtherLabs !== null && (
+        <StatCard
+          icon={CreditCard}
+          label="Paid to Other Labs"
+          value={formatCurrency(paidToOtherLabs)}
+          iconClass="stat-icon--other-labs"   // ← custom class for styling
+        />
       )}
     </div>
   );
