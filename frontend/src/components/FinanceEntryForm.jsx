@@ -108,7 +108,7 @@ const IT_CATEGORY_FIELDS = {
   "Other": { showEmployeeName: true, showVehicleType: false, labelName: "Name/Item", showPurpose: true },
 };
 
-// IT Sales category fields
+// IT Sales category fields (unchanged)
 const IT_SALES_CATEGORY_FIELDS = {
   "Travel & Entertainment (T&E)": {
     showEmployeeName: true,
@@ -251,7 +251,7 @@ const IT_SALES_CATEGORY_FIELDS = {
   },
 };
 
-// MedTech category fields
+// MedTech category fields (unchanged – we keep all but will add special handling for Ledger)
 const MEDTECH_CATEGORY_FIELDS = {
   "Travel & Entertainment (T&E)": {
     showEmployeeName: true,
@@ -290,12 +290,7 @@ const MEDTECH_CATEGORY_FIELDS = {
     labelName: "Employee/Person Name",
     showPurpose: true,
   },
-  "Supplies and Equipments": {
-    showEmployeeName: true,
-    showVehicleType: false,
-    labelName: "Item/Equipment Name",
-    showPurpose: true,
-  },
+  // "Supplies and Equipments" removed – we will not include it
   "Guest Concierge": {
     showEmployeeName: true,
     showVehicleType: false,
@@ -378,6 +373,7 @@ export default function FinanceEntryForm({
   const isMedTech = department === "MedTech";
   const isPCM = department === "PCM";
   const salaryCategoryName = options?.is_salary_category || "Payroll Salaries";
+  const ledgerCategoryName = "Ledger"; // hardcoded for MedTech
 
   const createEmptyForm = () => ({
     entry_type: "Income",
@@ -410,8 +406,18 @@ export default function FinanceEntryForm({
   const [saving, setSaving] = useState(false);
   const [employees, setEmployees] = useState([emptyEmployee()]);
 
-  // Determine if current category is the salary category
+  // --- Ledger specific states ---
+  const [ledgerCustomer, setLedgerCustomer] = useState("");
+  const [ledgerNewAmount, setLedgerNewAmount] = useState("");
+  const [ledgerPaid, setLedgerPaid] = useState("");
+  const [ledgerBalance, setLedgerBalance] = useState(0);
+  const [ledgerHistory, setLedgerHistory] = useState([]);
+  const [ledgerLoadingHistory, setLedgerLoadingHistory] = useState(false);
+  const [ledgerOutstanding, setLedgerOutstanding] = useState(0);
+  const [ledgerTotalAmount, setLedgerTotalAmount] = useState(0);
+
   const isSalaryCategory = !isOfficeAdmin && !isIT && !isITSales && !isMedTech && !isPCM && form.category === salaryCategoryName;
+  const isLedger = isMedTech && form.category === ledgerCategoryName;
 
   const itFieldConfig = isIT ? IT_CATEGORY_FIELDS[form.category] : null;
   const showITFields = isIT && itFieldConfig && form.category !== salaryCategoryName;
@@ -422,7 +428,7 @@ export default function FinanceEntryForm({
   const isITSalesSalaryCategory = isITSales && form.category === salaryCategoryName;
 
   const medTechFieldConfig = isMedTech ? MEDTECH_CATEGORY_FIELDS[form.category] : null;
-  const showMedTechFields = isMedTech && medTechFieldConfig && form.category !== salaryCategoryName;
+  const showMedTechFields = isMedTech && medTechFieldConfig && form.category !== salaryCategoryName && form.category !== ledgerCategoryName;
   const isMedTechSalaryCategory = isMedTech && form.category === salaryCategoryName;
 
   const pcmFieldConfig = isPCM ? PCM_CATEGORY_FIELDS[form.category] : null;
@@ -440,7 +446,6 @@ export default function FinanceEntryForm({
       const categoryList = options?.categories?.[entry.entry_type] || [];
       const isCustomCategory = categoryList.includes("Others") && !categoryList.includes(entry.category);
 
-      // Set form fields
       setForm({
         entry_type: entry.entry_type || "Income",
         category: isCustomCategory ? "Others" : entry.category || "",
@@ -465,7 +470,6 @@ export default function FinanceEntryForm({
       });
       setOtherCategory(isCustomCategory ? entry.category : "");
 
-      // Handle items
       if (Array.isArray(entry.items) && entry.items.length > 0) {
         setItems(entry.items.map((item) => ({
           _key: nextItemKey(),
@@ -477,7 +481,6 @@ export default function FinanceEntryForm({
         setItems([emptyItem()]);
       }
 
-      // Handle salary entries: populate employees array with the single entry's data
       const isSalary = entry.category === salaryCategoryName;
       if (isSalary) {
         setEmployees([{
@@ -493,6 +496,24 @@ export default function FinanceEntryForm({
         setEmployees([emptyEmployee()]);
       }
 
+      if (entry._type === "ledger") {
+        setLedgerCustomer(entry.customer_name || "");
+        const total = entry.total_amount || 0;
+        const paid = entry.paid || 0;
+        setLedgerTotalAmount(total);
+        setLedgerPaid(String(paid));
+        setLedgerBalance(total - paid);
+        setLedgerNewAmount("");
+      } else {
+        setLedgerCustomer("");
+        setLedgerNewAmount("");
+        setLedgerPaid("");
+        setLedgerBalance(0);
+        setLedgerHistory([]);
+        setLedgerOutstanding(0);
+        setLedgerTotalAmount(0);
+      }
+
       setInvoiceFile(null);
       setRemoveInvoice(false);
     };
@@ -504,10 +525,64 @@ export default function FinanceEntryForm({
       setOtherCategory("");
       setItems([emptyItem()]);
       setEmployees([emptyEmployee()]);
+      setLedgerCustomer("");
+      setLedgerNewAmount("");
+      setLedgerPaid("");
+      setLedgerBalance(0);
+      setLedgerHistory([]);
+      setLedgerOutstanding(0);
+      setLedgerTotalAmount(0);
       setInvoiceFile(null);
       setRemoveInvoice(false);
     }
   }, [editingEntry, open, options, salaryCategoryName]);
+
+  useEffect(() => {
+    if (!isLedger || !ledgerCustomer.trim()) {
+      setLedgerHistory([]);
+      setLedgerOutstanding(0);
+      return;
+    }
+    const fetchHistory = async () => {
+      setLedgerLoadingHistory(true);
+      try {
+        const res = await api.get(`/${apiBase}/ledger/history`, {
+          params: { customer: ledgerCustomer.trim() }
+        });
+        const history = res.data.history || [];
+        setLedgerHistory(history);
+        if (history.length > 0) {
+          const last = history[history.length - 1];
+          setLedgerOutstanding(last.balance || 0);
+        } else {
+          setLedgerOutstanding(0);
+        }
+      } catch (err) {
+        toast.error("Failed to fetch ledger history.");
+      } finally {
+        setLedgerLoadingHistory(false);
+      }
+    };
+    fetchHistory();
+  }, [isLedger, ledgerCustomer, apiBase]);
+
+  useEffect(() => {
+    if (isLedger) {
+      const isEditingLedger = editingEntry && editingEntry._type === "ledger";
+      if (isEditingLedger) {
+        const total = ledgerTotalAmount;
+        const paid = parseFloat(ledgerPaid) || 0;
+        setLedgerBalance(total - paid);
+      } else {
+        const outstanding = ledgerOutstanding || 0;
+        const newAmt = parseFloat(ledgerNewAmount) || 0;
+        const paid = parseFloat(ledgerPaid) || 0;
+        const total = outstanding + newAmt;
+        setLedgerTotalAmount(total);
+        setLedgerBalance(total - paid);
+      }
+    }
+  }, [isLedger, ledgerOutstanding, ledgerNewAmount, ledgerPaid, ledgerTotalAmount, editingEntry]);
 
   if (!open || !options) return null;
 
@@ -519,7 +594,10 @@ export default function FinanceEntryForm({
 
   const handleTypeChange = (event) => {
     const newType = event.target.value;
-    const firstCategory = options?.categories?.[newType]?.[0] || "";
+    let firstCategory = options?.categories?.[newType]?.[0] || "";
+    if (newType === "Ledger") {
+      firstCategory = "Ledger";  // force category to Ledger
+    }
     setForm((prev) => ({ ...prev, entry_type: newType, category: firstCategory }));
     setOtherCategory("");
     if (!isSalaryCategory) setEmployees([emptyEmployee()]);
@@ -538,6 +616,15 @@ export default function FinanceEntryForm({
       setEmployees([emptyEmployee()]);
     } else {
       if (employees.length === 0) setEmployees([emptyEmployee()]);
+    }
+    if (value !== ledgerCategoryName) {
+      setLedgerCustomer("");
+      setLedgerNewAmount("");
+      setLedgerPaid("");
+      setLedgerBalance(0);
+      setLedgerHistory([]);
+      setLedgerOutstanding(0);
+      setLedgerTotalAmount(0);
     }
   };
 
@@ -606,6 +693,7 @@ export default function FinanceEntryForm({
     setRemoveInvoice(false);
   };
 
+  // --- Submit handler ---
   const handleSubmit = async (event) => {
     event.preventDefault();
 
@@ -618,6 +706,56 @@ export default function FinanceEntryForm({
       return;
     }
 
+    // --- LEDGER SUBMISSION ---
+    if (isLedger) {
+      if (!ledgerCustomer.trim()) {
+        toast.error("Customer name is required.");
+        return;
+      }
+      const isEditingLedger = editingEntry && editingEntry._type === "ledger";
+      let totalAmount;
+      if (isEditingLedger) {
+        totalAmount = ledgerTotalAmount;
+      } else {
+        const newAmt = parseFloat(ledgerNewAmount) || 0;
+        totalAmount = ledgerOutstanding + newAmt;
+      }
+      if (totalAmount <= 0) {
+        toast.error("Total amount must be greater than 0.");
+        return;
+      }
+      const paid = parseFloat(ledgerPaid) || 0;
+      setSaving(true);
+      try {
+       const payload = {
+  entry_type: "Ledger",     // ✅ correct
+  category: "Ledger",
+  customer_name: ledgerCustomer.trim(),
+  entry_date: form.entry_date,
+  total_amount: totalAmount,
+  paid: paid,
+  remarks: form.remarks || "",
+};
+        const url = `/${apiBase}/entries`;
+        if (editingEntry && editingEntry._type === "ledger") {
+          await api.put(`${url}/${editingEntry.id}`, payload);
+          toast.success("Ledger entry updated.");
+        } else {
+          await api.post(url, payload);
+          toast.success("Ledger entry saved.");
+        }
+        if (typeof onSaved === "function") await onSaved();
+        onClose();
+      } catch (err) {
+        const msg = err.response?.data?.message || "Failed to save ledger entry.";
+        toast.error(msg);
+      } finally {
+        setSaving(false);
+      }
+      return;
+    }
+
+    // --- Rest of the validations (salary, office admin, IT, etc.) ---
     if (isOfficeAdmin && form.category === salaryCategoryName) {
       toast.error("Salary must be entered by Corporate Management only.");
       return;
@@ -983,7 +1121,7 @@ export default function FinanceEntryForm({
     }
   };
 
-  // Render function for standard fields (used as fallback for departments without special config)
+  // --- Render functions for different category types (unchanged except we skip Ledger) ---
   const renderStandardFields = () => {
     return (
       <>
@@ -1133,7 +1271,7 @@ export default function FinanceEntryForm({
     );
   };
 
-  // Render function for Office Admin category fields
+  // Render for Office Admin (unchanged)
   const renderOfficeAdminFields = () => {
     if (!showOfficeFields) return null;
     const config = officeFieldConfig;
@@ -1218,7 +1356,7 @@ export default function FinanceEntryForm({
     );
   };
 
-  // Render function for IT category fields
+  // Render for IT (unchanged)
   const renderITFields = () => {
     if (!showITFields) return null;
     const config = itFieldConfig;
@@ -1301,7 +1439,7 @@ export default function FinanceEntryForm({
     );
   };
 
-  // IT Sales fields
+  // Render for IT Sales (unchanged)
   const renderITSalesFields = () => {
     if (!showITSalesFields) return null;
     const config = itSalesFieldConfig;
@@ -1425,7 +1563,7 @@ export default function FinanceEntryForm({
     );
   };
 
-  // MedTech fields
+  // Render for MedTech non-Ledger (unchanged)
   const renderMedTechFields = () => {
     if (!showMedTechFields) return null;
     const config = medTechFieldConfig;
@@ -1508,7 +1646,7 @@ export default function FinanceEntryForm({
     );
   };
 
-  // PCM fields
+  // Render for PCM (unchanged)
   const renderPCMFields = () => {
     if (!showPCMFields) return null;
     const config = pcmFieldConfig;
@@ -1591,6 +1729,200 @@ export default function FinanceEntryForm({
     );
   };
 
+  // ---- UPDATED: Render the Ledger fields with Debit/Credit table ----
+  const renderLedgerFields = () => {
+    const isEditingLedger = editingEntry && editingEntry._type === "ledger";
+
+    // Build enhanced history with computed debit/credit
+    let enhancedHistory = [];
+    let prevBalance = 0;
+    for (const entry of ledgerHistory) {
+      const total = entry.total_amount || 0;
+      const paid = entry.paid || 0;
+      const balance = entry.balance || 0;
+      // Debit is the increase from previous balance (if any)
+      const debit = Math.max(0, total - prevBalance);
+      // Credit is the paid amount
+      const credit = paid;
+      // Determine particulars
+      let particulars = "—";
+      if (debit > 0 && credit > 0) particulars = "Sale & Payment";
+      else if (debit > 0) particulars = "Sale";
+      else if (credit > 0) particulars = "Payment";
+      enhancedHistory.push({
+        ...entry,
+        debit,
+        credit,
+        particulars,
+      });
+      prevBalance = balance;
+    }
+
+    return (
+      <>
+        <div className="form-group">
+          <label className="form-label">Customer Name</label>
+          <input
+            type="text"
+            value={ledgerCustomer}
+            onChange={(e) => setLedgerCustomer(e.target.value)}
+            placeholder="Enter customer name"
+            className="form-control"
+            required
+          />
+        </div>
+
+        {ledgerCustomer.trim() && (
+          <div className="form-group">
+            <p style={{ fontSize: "0.9rem", color: "#6b7280", marginBottom: 4 }}>
+              Outstanding Balance: <strong>{formatCurrency(ledgerOutstanding)}</strong>
+            </p>
+            {ledgerLoadingHistory ? (
+              <p>Loading history...</p>
+            ) : ledgerHistory.length > 0 ? (
+              <div style={{ maxHeight: "200px", overflowY: "auto", border: "1px solid #e5e7eb", borderRadius: "4px", padding: "8px" }}>
+                <table style={{ width: "100%", fontSize: "0.85rem", borderCollapse: "collapse" }}>
+                  <thead>
+                    <tr style={{ borderBottom: "1px solid #d1d5db" }}>
+                      <th style={{ textAlign: "left", padding: "4px 8px" }}>Date</th>
+                      <th style={{ textAlign: "left", padding: "4px 8px" }}>Particulars</th>
+                      <th style={{ textAlign: "right", padding: "4px 8px" }}>Debit (₹)</th>
+                      <th style={{ textAlign: "right", padding: "4px 8px" }}>Credit (₹)</th>
+                      <th style={{ textAlign: "right", padding: "4px 8px" }}>Balance (₹)</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {enhancedHistory.map((entry) => (
+                      <tr key={entry.id} style={{ borderBottom: "1px solid #f3f4f6" }}>
+                        <td style={{ padding: "4px 8px" }}>{entry.entry_date}</td>
+                        <td style={{ padding: "4px 8px" }}>{entry.particulars}</td>
+                        <td style={{ textAlign: "right", padding: "4px 8px" }}>
+                          {entry.debit > 0 ? formatCurrency(entry.debit) : "—"}
+                        </td>
+                        <td style={{ textAlign: "right", padding: "4px 8px" }}>
+                          {entry.credit > 0 ? formatCurrency(entry.credit) : "—"}
+                        </td>
+                        <td style={{ textAlign: "right", fontWeight: 600, padding: "4px 8px" }}>
+                          {formatCurrency(entry.balance)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <p style={{ fontSize: "0.85rem", color: "#9ca3af" }}>No previous transactions.</p>
+            )}
+          </div>
+        )}
+
+        <div className="form-row">
+          <div className="form-group">
+            <label className="form-label">
+              {isEditingLedger ? "Total Amount (₹)" : "New Amount to Add (₹)"}
+            </label>
+            <input
+              type="number"
+              step="0.01"
+              min="0"
+              value={isEditingLedger ? ledgerTotalAmount : ledgerNewAmount}
+              onChange={(e) => {
+                if (isEditingLedger) {
+                  const val = parseFloat(e.target.value) || 0;
+                  setLedgerTotalAmount(val);
+                  const paid = parseFloat(ledgerPaid) || 0;
+                  setLedgerBalance(val - paid);
+                } else {
+                  setLedgerNewAmount(e.target.value);
+                }
+              }}
+              placeholder="0.00"
+              className="form-control"
+              required
+            />
+          </div>
+          <div className="form-group">
+            <label className="form-label">Paid (₹)</label>
+            <input
+              type="number"
+              step="0.01"
+              min="0"
+              value={ledgerPaid}
+              onChange={(e) => {
+                const paid = parseFloat(e.target.value) || 0;
+                setLedgerPaid(e.target.value);
+                if (isEditingLedger) {
+                  setLedgerBalance(ledgerTotalAmount - paid);
+                } else {
+                  const total = ledgerOutstanding + parseFloat(ledgerNewAmount) || 0;
+                  setLedgerBalance(total - paid);
+                }
+              }}
+              placeholder="0.00"
+              className="form-control"
+            />
+          </div>
+        </div>
+
+        {!isEditingLedger && (
+          <div className="form-group">
+            <label className="form-label">Total Amount (auto‑calculated)</label>
+            <input
+              type="text"
+              value={formatCurrency(ledgerTotalAmount)}
+              disabled
+              className="form-control"
+              style={{ backgroundColor: "#f3f4f6" }}
+            />
+          </div>
+        )}
+
+        <div className="form-group">
+          <label className="form-label">Balance (auto‑calculated)</label>
+          <input
+            type="text"
+            value={formatCurrency(ledgerBalance)}
+            disabled
+            className="form-control"
+            style={{ backgroundColor: "#f3f4f6" }}
+          />
+        </div>
+
+        <div className="form-group">
+          <label className="form-label">Date</label>
+          <input
+            type="date"
+            name="entry_date"
+            value={form.entry_date}
+            onChange={handleChange}
+            className="form-control"
+            required
+          />
+        </div>
+
+        <div className="form-group">
+          <label className="form-label">Remarks</label>
+          <textarea
+            name="remarks"
+            value={form.remarks}
+            onChange={handleChange}
+            rows={2}
+            placeholder="Optional notes"
+            className="form-control"
+          />
+        </div>
+
+        <div style={{ marginTop: 12, background: "#f0f9ff", padding: "8px", borderRadius: "4px" }}>
+          <p style={{ fontSize: "0.9rem" }}>
+            <strong>Note:</strong> To add new amount, enter the amount in “New Amount to Add”.
+            To record a payment, set “New Amount” to 0 and enter the paid amount.
+          </p>
+        </div>
+      </>
+    );
+  };
+
+  // ----- MAIN RENDER -----
   return (
     <div className="modal-overlay">
       <div className="modal">
@@ -1618,13 +1950,17 @@ export default function FinanceEntryForm({
             </div>
             <div className="form-group">
               <label className="form-label">Category</label>
-              <select name="category" value={form.category} onChange={handleCategoryChange} className="form-control">
-                {categoryOptionsForType
-                  .filter(cat => !(isOfficeAdmin && cat === salaryCategoryName))
-                  .map((cat) => (
-                    <option key={cat} value={cat}>{cat}</option>
-                  ))}
-              </select>
+              {form.entry_type === "Ledger" ? (
+                <input value="Ledger" disabled className="form-control" />
+              ) : (
+                <select name="category" value={form.category} onChange={handleCategoryChange} className="form-control">
+                  {categoryOptionsForType
+                    .filter(cat => !(isOfficeAdmin && cat === salaryCategoryName))
+                    .map((cat) => (
+                      <option key={cat} value={cat}>{cat}</option>
+                    ))}
+                </select>
+              )}
             </div>
           </div>
 
@@ -1699,7 +2035,7 @@ export default function FinanceEntryForm({
             </div>
           )}
 
-          {/* ========== SALARY CATEGORY (for other departments) ========== */}
+          {/* ========== SALARY CATEGORY ========== */}
           {isSalaryCategory && (
             <div className="form-group">
               <label className="form-label">Employees</label>
@@ -1809,8 +2145,11 @@ export default function FinanceEntryForm({
             </div>
           )}
 
-          {/* OFFICE ADMIN FIELDS */}
-          {isOfficeAdmin && !isOfficeAdminSalary && (
+          {/* ===== LEDGER FIELDS ===== */}
+          {isLedger && renderLedgerFields()}
+
+          {/* ===== OFFICE ADMIN FIELDS (non-Ledger, non-Salary) ===== */}
+          {isOfficeAdmin && !isOfficeAdminSalary && !isLedger && (
             <>
               {officeFieldConfig && (
                 <>
@@ -1894,28 +2233,28 @@ export default function FinanceEntryForm({
             </>
           )}
 
-          {/* IT FIELDS (excluding salary) – fallback to standard fields if no special config */}
-          {isIT && !isITSalaryCategory && (
+          {/* ===== IT FIELDS ===== */}
+          {isIT && !isITSalaryCategory && !isLedger && (
             showITFields ? renderITFields() : renderStandardFields()
           )}
 
-          {/* IT SALES FIELDS (excluding salary) – uses updated renderITSalesFields */}
-          {isITSales && !isITSalesSalaryCategory && (
+          {/* ===== IT SALES FIELDS ===== */}
+          {isITSales && !isITSalesSalaryCategory && !isLedger && (
             showITSalesFields ? renderITSalesFields() : renderStandardFields()
           )}
 
-          {/* MEDTECH FIELDS (excluding salary) – fallback to standard fields */}
-          {isMedTech && !isMedTechSalaryCategory && (
+          {/* ===== MEDTECH FIELDS (excluding Salary and Ledger) ===== */}
+          {isMedTech && !isMedTechSalaryCategory && !isLedger && (
             showMedTechFields ? renderMedTechFields() : renderStandardFields()
           )}
 
-          {/* PCM FIELDS (excluding salary) – fallback to standard fields */}
-          {isPCM && !isPCMSalaryCategory && (
+          {/* ===== PCM FIELDS ===== */}
+          {isPCM && !isPCMSalaryCategory && !isLedger && (
             showPCMFields ? renderPCMFields() : renderStandardFields()
           )}
 
-          {/* STANDARD FIELDS (for non-salary, non-office-admin, non-IT, non-IT Sales, non-MedTech, non-PCM) */}
-          {!isSalaryCategory && !isOfficeAdmin && !isIT && !isITSales && !isMedTech && !isPCM && renderStandardFields()}
+          {/* ===== STANDARD FIELDS (non-salary, non-office, non-IT, non-IT Sales, non-MedTech, non-PCM) ===== */}
+          {!isSalaryCategory && !isOfficeAdmin && !isIT && !isITSales && !isMedTech && !isPCM && !isLedger && renderStandardFields()}
 
           <div className="modal-footer">
             <button type="button" onClick={onClose} className="btn btn-secondary" disabled={saving}>Cancel</button>

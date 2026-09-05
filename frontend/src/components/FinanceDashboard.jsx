@@ -20,7 +20,7 @@ export default function FinanceDashboard({
   title,
   roleColor,
   paginateByCategory = false,
-  itemsPerPage = 30, // default, but Corporate will pass 30
+  itemsPerPage = 30,
 }) {
   const apiBase = department.toLowerCase().replace(/\s/g, '');
   const supportsExcelImportExport = department === "PCM";
@@ -35,7 +35,6 @@ export default function FinanceDashboard({
   const [loading, setLoading] = useState(true);
   const [importing, setImporting] = useState(false);
 
-  // Category selection & pagination (only used when paginateByCategory === true)
   const [selectedCategory, setSelectedCategory] = useState(null);
   const [currentPage, setCurrentPage] = useState(1);
 
@@ -64,7 +63,6 @@ export default function FinanceDashboard({
         api.get(`/${apiBase}/summary`, { params: { start_date: startDate, end_date: endDate } }),
       ]);
 
-      // Safe handling – backend returns { entries: [...] }
       const entriesData = Array.isArray(entriesRes.data)
         ? entriesRes.data
         : (entriesRes.data.entries || []);
@@ -72,7 +70,6 @@ export default function FinanceDashboard({
       setEntries(entriesData);
       setSummary(summaryRes.data);
 
-      // Reset category selection when data changes (e.g., new filter)
       if (paginateByCategory) {
         setSelectedCategory(null);
         setCurrentPage(1);
@@ -109,7 +106,6 @@ export default function FinanceDashboard({
     }
   };
 
-  // ---- Excel Export/Import (unchanged) ----
   const handleExportCsv = () => {
     if (!entries.length) {
       toast.error("No entries to export.");
@@ -192,7 +188,6 @@ export default function FinanceDashboard({
     }
   };
 
-  // ---- Category selection & pagination ----
   const categoriesWithCounts = React.useMemo(() => {
     if (!paginateByCategory) return [];
     const counts = {};
@@ -209,7 +204,6 @@ export default function FinanceDashboard({
     return entries.filter(e => e.category === selectedCategory);
   }, [entries, paginateByCategory, selectedCategory]);
 
-  // Pagination
   const totalItems = filteredEntries.length;
   const totalPages = Math.ceil(totalItems / itemsPerPage) || 1;
   const paginatedEntries = React.useMemo(() => {
@@ -222,7 +216,6 @@ export default function FinanceDashboard({
     setCurrentPage(page);
   };
 
-  // Reset page when category changes
   useEffect(() => {
     setCurrentPage(1);
   }, [selectedCategory]);
@@ -237,7 +230,6 @@ export default function FinanceDashboard({
     setFormOpen(true);
   };
 
-  // ---- Render ----
   return (
     <div className="page">
       <Navbar title={title} roleColor={roleColor} />
@@ -289,7 +281,6 @@ export default function FinanceDashboard({
           <FinanceCharts trend={summary.trend} categoryBreakdown={summary.category_breakdown} />
         )}
 
-        {/* ===== Category Selection (only for Corporate) ===== */}
         {paginateByCategory && (
           <div className="category-selector" style={{ marginBottom: 20 }}>
             <h3 style={{ marginBottom: 8 }}>Select a Category</h3>
@@ -309,7 +300,6 @@ export default function FinanceDashboard({
           </div>
         )}
 
-        {/* ===== Entries Table ===== */}
         <div>
           <p className="section-title" style={{ marginBottom: 12 }}>
             {paginateByCategory && selectedCategory
@@ -321,7 +311,6 @@ export default function FinanceDashboard({
             <div className="card empty-state">Loading...</div>
           ) : (
             <>
-              {/* Show table only if not in category mode OR category selected */}
               {(!paginateByCategory || selectedCategory) ? (
                 <>
                   <FinanceTable
@@ -330,7 +319,6 @@ export default function FinanceDashboard({
                     onDelete={handleDelete}
                   />
 
-                  {/* Pagination controls */}
                   {paginateByCategory && totalPages > 1 && (
                     <div className="pagination" style={{ marginTop: 16, display: "flex", justifyContent: "center", gap: 8, alignItems: "center" }}>
                       <button

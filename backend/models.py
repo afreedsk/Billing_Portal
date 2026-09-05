@@ -72,14 +72,13 @@ DEPARTMENT_CONFIG = {
                 "Facilities & Overhead",
                 "Travel & Entertainment (T&E)",
                 "Marketing",
-                "Supplies & Equipments",          # ✅ Kept
+                "Supplies & Equipments",
                 "Guest Concierge",
                 "Events-Conferences-Training",
                 "Business Services Revenue",
                 "Miscellaneous",
                 "General Operations",
                 "Innovation",
-                # "Supplies and Equipments",      # ❌ REMOVED – duplicate
                 "Consulting",
                 "Management Fees",
                 "Other"
@@ -205,12 +204,13 @@ DEPARTMENT_CONFIG = {
                 "Facilities & Overhead",
                 "General Operations",
                 "Innovation",
-                "Supplies and Equipments",   # MedTech keeps both – not our concern
+                # "Supplies and Equipments",   # REMOVED
                 "Guest Concierge",
                 "Business Services Revenue",
                 "Miscellaneous",
                 "Outsourced Services",
                 "Events-Conferences-Training",
+                "Ledger",                     # ADDED
                 "Other"
             ]
         },
@@ -468,6 +468,33 @@ class FinanceEntryItem(db.Model):
             "amount": float(self.amount),
         }
 
+# ---------- MedTechLedger model ----------
+class MedTechLedger(db.Model):
+    __tablename__ = "medtech_ledger"
+
+    id = db.Column(db.Integer, primary_key=True)
+    customer_name = db.Column(db.String(150), nullable=False)
+    entry_date = db.Column(db.Date, nullable=False)
+    total_amount = db.Column(db.Numeric(14, 2), nullable=False, default=0)
+    paid = db.Column(db.Numeric(14, 2), nullable=False, default=0)
+    balance = db.Column(db.Numeric(14, 2), nullable=False, default=0)
+    remarks = db.Column(db.Text, nullable=True)
+    created_by_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "customer_name": self.customer_name,
+            "entry_date": self.entry_date.isoformat() if self.entry_date else None,
+            "total_amount": float(self.total_amount or 0),
+            "paid": float(self.paid or 0),
+            "balance": float(self.balance or 0),
+            "remarks": self.remarks,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+        }
+
 # ---------- CaredxLabEntry model ----------
 class CaredxLabEntry(db.Model):
     __tablename__ = "caredx_lab_entries"
@@ -586,6 +613,8 @@ class SalesEnterpriseKPI(db.Model):
             "created_at": self.created_at.isoformat() if self.created_at else None,
         }
 
+# ---------- Migration functions ----------
+# (unchanged – keep as is)
 # ---------- Migration functions ----------
 def migrate_corporate_categories():
     """Rename existing Corporate entries from old category names to new ones."""

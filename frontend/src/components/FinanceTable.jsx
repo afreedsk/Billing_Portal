@@ -13,17 +13,11 @@ const formatCurrency = (value) => {
   }).format(number);
 };
 
-// Get the base URL without the /api suffix (for file endpoints)
 const getApiOrigin = () => {
   const base = api.defaults.baseURL || "";
   return base.replace(/\/api\/?$/, "").replace(/\/$/, "");
 };
 
-/*
- * View invoice through Axios using the full absolute URL.
- * This ensures the request goes to /files/invoices/ (not /api/files/invoices/).
- * The Axios interceptor adds the JWT Authorization header automatically.
- */
 const handleViewInvoice = async (entry) => {
   try {
     if (!entry?.invoice_url) {
@@ -31,7 +25,6 @@ const handleViewInvoice = async (entry) => {
       return;
     }
 
-    // Build full URL – if already absolute, keep it; otherwise prepend origin.
     let fullUrl = entry.invoice_url;
     if (!fullUrl.startsWith("http://") && !fullUrl.startsWith("https://")) {
       const origin = getApiOrigin() || window.location.origin;
@@ -51,7 +44,6 @@ const handleViewInvoice = async (entry) => {
       toast.error("Please allow pop-ups to view the invoice.");
     }
 
-    // Clean up the temporary URL after a delay
     setTimeout(() => window.URL.revokeObjectURL(fileUrl), 60000);
   } catch (error) {
     console.error("Invoice open error:", error);
@@ -84,7 +76,6 @@ export default function FinanceTable({
     );
   }
 
-  // Conditionally show columns based on data presence
   const showClientName = entries.some((entry) => entry?.client_name);
   const showGstNumber = entries.some((entry) => entry?.gst_number);
   const showItems = entries.some(
@@ -105,6 +96,7 @@ export default function FinanceTable({
     (entry) => entry?.allowance_amount !== null && entry?.allowance_amount !== undefined
   );
   const showTeam = entries.some((entry) => entry?.team);
+  const showLedgerDetails = entries.some((entry) => entry._type === "ledger");
 
   return (
     <div className="table-responsive">
@@ -128,6 +120,7 @@ export default function FinanceTable({
             {showAllowanceAmount && <th className="text-right">Allowance</th>}
             {showTeam && <th>Team</th>}
             <th className="text-right">Amount</th>
+            {showLedgerDetails && <th>Customer / Details</th>}
             <th>Remarks</th>
             {showInvoice && <th>Invoice</th>}
             <th>Actions</th>
@@ -142,6 +135,8 @@ export default function FinanceTable({
                 return `${item.item_name || "Item"} (x${qty})`;
               })
               .join(", ");
+
+            const isLedger = entry._type === "ledger";
 
             return (
               <tr key={entry.id}>
@@ -190,6 +185,19 @@ export default function FinanceTable({
                 <td className="text-right" style={{ fontWeight: 600 }}>
                   {formatCurrency(entry.amount)}
                 </td>
+                {showLedgerDetails && (
+                  <td>
+                    {isLedger ? (
+                      <div>
+                        <div><strong>Customer:</strong> {entry.customer_name || "—"}</div>
+                        <div><strong>Paid:</strong> {formatCurrency(entry.paid)}</div>
+                        <div><strong>Balance:</strong> {formatCurrency(entry.balance)}</div>
+                      </div>
+                    ) : (
+                      "—"
+                    )}
+                  </td>
+                )}
                 <td>{entry.remarks || "—"}</td>
                 {showInvoice && (
                   <td>
