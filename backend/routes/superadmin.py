@@ -6,7 +6,7 @@ from flask_jwt_extended import get_jwt_identity
 
 from models import (
     db, User, FinanceEntry, CaredxLabEntry, CaredxExpense,
-    SalesEnterpriseKPI,  # new
+    SalesEnterpriseKPI, MedTechLedger,   # <-- Added MedTechLedger
     ROLES, VALID_DEPARTMENTS, ENTRY_TYPES, DEPARTMENT_CONFIG,
 )
 from utils import role_required
@@ -221,8 +221,22 @@ def overview():
             income = caredx_income(start_date, end_date)
             expenses = caredx_expenses(start_date, end_date)
         else:
-            income = sum_for(dept, "Income", start_date, end_date)
-            expenses = sum_for(dept, "Expenses", start_date, end_date)
+            # For MedTech, we need to include Ledger expenses in the overview
+            if dept == "MedTech":
+                # Finance expenses (excluding Ledger)
+                fin_exp = sum_for(dept, "Expenses", start_date, end_date)
+                # Ledger expenses
+                ledger_query = db.session.query(func.coalesce(func.sum(MedTechLedger.total_amount), 0))
+                if start_date:
+                    ledger_query = ledger_query.filter(MedTechLedger.entry_date >= start_date)
+                if end_date:
+                    ledger_query = ledger_query.filter(MedTechLedger.entry_date <= end_date)
+                ledger_exp = float(ledger_query.scalar())
+                expenses = fin_exp + ledger_exp
+                income = sum_for(dept, "Income", start_date, end_date)
+            else:
+                income = sum_for(dept, "Income", start_date, end_date)
+                expenses = sum_for(dept, "Expenses", start_date, end_date)
         by_department.append({
             "department": dept,
             "income": income,
@@ -285,6 +299,186 @@ def _apply_finance_filters(query, args):
             )
         )
     return query
+
+
+# ----------------------------------------------------------------------
+# MedTech helpers – combine finance and ledger entries
+# ----------------------------------------------------------------------
+def _get_medtech_entries_with_ledger():
+    """Fetch MedTech finance entries (excluding Ledger) + MedTechLedger entries, combined and paginated."""
+    start_date = _parse_date(request.args.get("start_date"))
+    end_date = _parse_date(request.args.get("end_date"))
+    search = request.args.get("search")
+    category = request.args.get("category")
+    page = request.args.get("page", 1, type=int)
+    per_page = request.args.get("per_page", 30, type=int)
+    if page < 1:
+        page = 1
+    if per_page < 1:
+        per_page = 1
+    if per_page > 100:
+        per_page = 100
+
+    # 1. Finance entries (exclude Ledger category)
+    finance_query = FinanceEntry.query.filter(
+        FinanceEntry.department == "MedTech",
+        FinanceEntry.category != "Ledger"
+    )
+    if start_date:
+        finance_query = finance_query.filter(FinanceEntry.entry_date >= start_date)
+    if end_date:
+        finance_query = finance_query.filter(FinanceEntry.entry_date <= end_date)
+    if category:
+        finance_query = finance_query.filter(FinanceEntry.category == category)
+    if search:
+        like = f"%{search}%"
+        finance_query = finance_query.filter(
+            or_(
+                FinanceEntry.remarks.ilike(like),
+                FinanceEntry.generated_by.ilike(like),
+                FinanceEntry.client_name.ilike(like),
+                FinanceEntry.patient_name.ilike(like),
+                FinanceEntry.patient_place.ilike(like),
+                FinanceEntry.gst_number.ilike(like),
+                FinanceEntry.category.ilike(like),
+            )
+        )
+    finance_entries = finance_query.order_by(FinanceEntry.entry_date.desc(), FinanceEntry.id.desc()).all()
+
+    # 2. Ledger entries
+    ledger_query = MedTechLedger.query
+    if start_date:
+        ledger_query = ledger_query.filter(MedTechLedger.entry_date >= start_date)
+    if end_date:
+        ledger_query = ledger_query.filter(MedTechLedger.entry_date <= end_date)
+    if search:
+        like = f"%{search}%"
+        ledger_query = ledger_query.filter(
+            or_(
+                MedTechLedger.customer_name.ilike(like),
+                MedTechLedger.remarks.ilike(like)
+            )
+        )
+    # category filter does not apply to ledger (it's always Ledger)
+    ledger_entries = ledger_query.order_by(MedTechLedger.entry_date.desc(), MedTechLedger.id.desc()).all()
+
+    # 3. Convert to dict and combine
+    combined = []
+    for fe in finance_entries:
+        d = fe.to_dict()
+        d["_type"] = "finance"
+        combined.append(d)
+    for le in ledger_entries:
+        combined.append({
+            "id": le.id,
+            "department": "MedTech",
+            "entry_type": "Expenses",
+            "category": "Ledger",
+            "amount": float(le.total_amount or 0),
+            "entry_date": le.entry_date.isoformat(),
+            "remarks": le.remarks,
+            "customer_name": le.customer_name,
+            "paid": float(le.paid or 0),
+            "balance": float(le.balance or 0),
+            "_type": "ledger",
+            "created_at": le.created_at.isoformat() if le.created_at else None,
+        })
+
+    # 4. Sort by date descending
+    combined.sort(key=lambda x: (x["entry_date"], x["id"]), reverse=True)
+
+    # 5. Paginate the combined list in memory
+    total = len(combined)
+    total_pages = (total + per_page - 1) // per_page if total > 0 else 0
+    start_idx = (page - 1) * per_page
+    end_idx = min(start_idx + per_page, total)
+    paginated_entries = combined[start_idx:end_idx]
+
+    return jsonify({
+        "entries": paginated_entries,
+        "pagination": {
+            "page": page,
+            "per_page": per_page,
+            "total": total,
+            "pages": total_pages,
+        }
+    }), 200
+
+
+def _get_medtech_summary_with_ledger():
+    """Return summary for MedTech including Ledger entries."""
+    start_date = _parse_date(request.args.get("start_date"))
+    end_date = _parse_date(request.args.get("end_date"))
+    category = request.args.get("category")  # only used for finance entries
+
+    # Finance entries (exclude Ledger)
+    finance_query = FinanceEntry.query.filter(
+        FinanceEntry.department == "MedTech",
+        FinanceEntry.category != "Ledger"
+    )
+    if start_date:
+        finance_query = finance_query.filter(FinanceEntry.entry_date >= start_date)
+    if end_date:
+        finance_query = finance_query.filter(FinanceEntry.entry_date <= end_date)
+    if category:
+        finance_query = finance_query.filter(FinanceEntry.category == category)
+    finance_entries = finance_query.all()
+
+    # Ledger entries
+    ledger_query = MedTechLedger.query
+    if start_date:
+        ledger_query = ledger_query.filter(MedTechLedger.entry_date >= start_date)
+    if end_date:
+        ledger_query = ledger_query.filter(MedTechLedger.entry_date <= end_date)
+    ledger_entries = ledger_query.all()
+
+    # Combine all items
+    all_items = []
+    for fe in finance_entries:
+        all_items.append({
+            "entry_date": fe.entry_date,
+            "entry_type": fe.entry_type,
+            "category": fe.category,
+            "amount": float(fe.amount),
+        })
+    for le in ledger_entries:
+        all_items.append({
+            "entry_date": le.entry_date,
+            "entry_type": "Expenses",
+            "category": "Ledger",
+            "amount": float(le.total_amount or 0),
+        })
+
+    total_income = sum(item["amount"] for item in all_items if item["entry_type"] == "Income")
+    total_expenses = sum(item["amount"] for item in all_items if item["entry_type"] == "Expenses")
+
+    # Trend by date
+    by_date = {}
+    for item in all_items:
+        key = item["entry_date"].isoformat()
+        by_date.setdefault(key, {"date": key, "income": 0, "expenses": 0})
+        if item["entry_type"] == "Income":
+            by_date[key]["income"] += item["amount"]
+        else:
+            by_date[key]["expenses"] += item["amount"]
+    trend = sorted(by_date.values(), key=lambda x: x["date"])
+
+    # Category breakdown
+    by_category = {}
+    for item in all_items:
+        cat = item["category"] or "Uncategorized"
+        by_category.setdefault(cat, {"category": cat, "amount": 0})
+        by_category[cat]["amount"] += item["amount"]
+
+    return jsonify({
+        "department": "MedTech",
+        "total_income": total_income,
+        "total_expenses": total_expenses,
+        "profit": total_income - total_expenses,
+        "entry_count": len(all_items),
+        "trend": trend,
+        "category_breakdown": list(by_category.values()),
+    }), 200
 
 
 # ----------------------------------------------------------------------
@@ -531,6 +725,8 @@ def _get_caredx_entries_and_summary(for_summary=False):
         "trend": combined_trend,
         "category_breakdown": list(combined_categories.values()),
     }
+
+
 # ----------------------------------------------------------------------
 # Department entries – with PAGINATION (for all non-SalesEnterprise depts)
 # ----------------------------------------------------------------------
@@ -540,9 +736,15 @@ def dept_entries(dept):
     if dept not in VALID_DEPARTMENTS:
         return jsonify({"message": "Unknown department."}), 404
 
+    # Special case: Caredx
     if dept == "Caredx":
         return jsonify(_get_caredx_entries_and_summary(for_summary=False)), 200
 
+    # Special case: MedTech – include Ledger entries from MedTechLedger
+    if dept == "MedTech":
+        return _get_medtech_entries_with_ledger()
+
+    # Other departments (regular FinanceEntry only)
     start_date = _parse_date(request.args.get("start_date"))
     end_date = _parse_date(request.args.get("end_date"))
 
@@ -631,6 +833,10 @@ def dept_summary(dept):
 
     if dept == "Caredx":
         return jsonify(_get_caredx_entries_and_summary(for_summary=True)), 200
+
+    # Special case: MedTech – include Ledger
+    if dept == "MedTech":
+        return _get_medtech_summary_with_ledger()
 
     start_date = _parse_date(request.args.get("start_date"))
     end_date = _parse_date(request.args.get("end_date"))
